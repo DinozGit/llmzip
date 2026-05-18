@@ -94,9 +94,8 @@ if(EMBED_MODEL)
         )
         add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
         add_dependencies(llmzip model_embedded)
+        # Link .o only to the final executable; symbols resolve for llmzip_core at link time
         target_link_libraries(llmzip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
-        # Also add to static lib so it can use the symbols
-        target_link_libraries(llmzip_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
     else()
         message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
     endif()
