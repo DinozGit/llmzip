@@ -6,6 +6,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <cstdio>
 #include <chrono>
 #include <ctime>
 
@@ -83,12 +84,19 @@ int Commands::decompress(const CommandContext& ctx) {
         std::string s = oss.str();
         data.assign(s.begin(), s.end());
     } else {
-        std::ifstream file(ctx.input_file, std::ios::binary);
-        if (!file) {
+        FILE* fp = fopen(ctx.input_file.c_str(), "rb");
+        if (!fp) {
             std::cerr << "Error: cannot open " << ctx.input_file << "\n";
             return 1;
         }
-        data = std::vector<uint8_t>(std::istreambuf_iterator<char>(file), {});
+        fseek(fp, 0, SEEK_END);
+        long sz = ftell(fp);
+        if (sz > 0) {
+            rewind(fp);
+            data.resize(sz);
+            fread(data.data(), 1, sz, fp);
+        }
+        fclose(fp);
     }
 
     if (data.empty()) {
