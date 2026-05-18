@@ -35,10 +35,32 @@ set(CORE_SOURCES
     src/cli/commands.cpp
 )
 
+if(EMBED_MODEL)
+    # Embed ONNX model as a C source file via xxd (portable, always works)
+    set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
+    if(EXISTS "${MODEL_ONNX}")
+        message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c
+            COMMAND xxd -i "${MODEL_ONNX}" > model_embedded.c
+            DEPENDS "${MODEL_ONNX}"
+            COMMENT "Converting ONNX model to C source..."
+        )
+        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
+        list(APPEND CORE_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
+        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c PROPERTIES GENERATED TRUE)
+    else()
+        message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
+    endif()
+    add_definitions(-DEMBED_MODEL)
+endif()
+
 # Основная библиотека ядра
 add_library(llmzip_core STATIC
     ${CORE_SOURCES}
 )
+
+add_dependencies(llmzip_core model_embedded)
 
 target_include_directories(llmzip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -79,27 +101,6 @@ add_executable(llmzip
     src/cli/main.cpp
 )
 
-if(EMBED_MODEL)
-    # Embed ONNX model as a C source file via xxd (portable, always works)
-    set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
-    if(EXISTS "${MODEL_ONNX}")
-        message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
-        add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c
-            COMMAND xxd -i "${MODEL_ONNX}" > model_embedded.c
-            DEPENDS "${MODEL_ONNX}"
-            COMMENT "Converting ONNX model to C source..."
-        )
-        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
-        list(APPEND CORE_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
-        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c PROPERTIES GENERATED TRUE)
-    else()
-        message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
-    endif()
-    add_definitions(-DEMBED_MODEL)
-endif()
-
-add_dependencies(llmzip_core model_embedded)
 add_dependencies(llmzip model_embedded)
 
 target_link_libraries(llmzip PRIVATE llmzip_core)
