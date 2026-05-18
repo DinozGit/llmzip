@@ -91,15 +91,19 @@ if(EMBED_MODEL)
             COMMENT "Embedding ONNX model into binary..."
         )
         add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
-        add_dependencies(llmzip model_embedded)
-        # Link model BEFORE llmzip_core so symbols resolve (GNU ld left-to-right)
-        target_link_libraries(llmzip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
+
+        # Add the .o directly as a source to llmzip_core so symbols resolve inside the .a
+        target_sources(llmzip_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
+        set_target_properties(llmzip_core PROPERTIES LINKER_LANGUAGE CXX)
     else()
         message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
     endif()
     target_compile_definitions(llmzip PRIVATE EMBED_MODEL)
     target_compile_definitions(llmzip_core PRIVATE EMBED_MODEL)
 endif()
+
+add_dependencies(llmzip_core model_embedded)
+add_dependencies(llmzip model_embedded)
 
 target_link_libraries(llmzip PRIVATE llmzip_core)
 
