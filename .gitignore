@@ -1,0 +1,59 @@
+# .gitignore для llmzip
+
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Binary files
+*.o
+*.so
+*.a
+*.lib
+*.dll
+*.exe
+*.dylib
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Model files (large binaries)
+resources/*.onnx
+resources/model_quantized.onnx
+resources/onnx_model/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+*.lz
+*.test_output
+test_data/
+
+# Release artifacts
+*.zip
+*.tar.gz
+releases/
