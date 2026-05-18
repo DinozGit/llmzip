@@ -32,22 +32,127 @@ std::string replace_all(const std::string& str, const std::string& from, const s
 // ---------------------------------------------------------------------------
 struct Abbreviation { std::string abbr; std::string full; };
 static const std::vector<Abbreviation> kAbbr = {
-    {"PG","PostgreSQL"}, {"DRF","Django REST Framework"},
+    // Databases & Storage
+    {"PG","PostgreSQL"}, {"MySQL","MySQL"}, {"SQLite","SQLite"},
+    {"Redis","Redis"}, {"Mongo","MongoDB"}, {"S3","Amazon S3"},
+    {"ES","Elasticsearch"}, {"TSDB","Time Series Database"},
+
+    // Frameworks & Libraries
+    {"DRF","Django REST Framework"}, {"ORM","Object-Relational Mapping"},
     {"PyDev","Python Developer"}, {"FSDev","Full-Stack Developer"},
+
+    // Roles & Positions
     {"DevOps","DevOps Engineer"}, {"2+y","2+ years"},
+    {"PM","Product Manager"}, {"TL","Tech Lead"},
+    {"EM","Engineering Manager"}, {"SWE","Software Engineer"},
+
+    // AI / ML
     {"LLM","Large Language Model"}, {"RAG","Retrieval-Augmented Generation"},
     {"Emb","Embeddings"}, {"Tok","Tokens"}, {"Temp","Temperature"},
+    {"AI","Artificial Intelligence"}, {"ML","Machine Learning"},
+    {"DL","Deep Learning"}, {"NLP","Natural Language Processing"},
+    {"CV","Computer Vision"}, {"ASR","Automatic Speech Recognition"},
+    {"TTS","Text-to-Speech"}, {"NER","Named Entity Recognition"},
+    {"SLM","Small Language Model"}, {"GenAI","Generative AI"},
+    {"Agent","AI Agent"}, {"FT","Fine-tuning"},
+    {"RHLF","Reinforcement Learning from Human Feedback"},
+    {"LoRA","Low-Rank Adaptation"}, {"QLoRA","Quantized LoRA"},
+    {"SFT","Supervised Fine-Tuning"}, {"DPO","Direct Preference Optimization"},
+    {"KTO","KL-constrained TO"}, {"KG","Knowledge Graph"},
+    {"Embed","Embeddings Model"}, {"VecDB","Vector Database"},
+    {"ANN","Approximate Nearest Neighbor"},
+
+    // Tech stack
     {"CDN","Content Delivery Network"}, {"WAF","Web Application Firewall"},
     {"RBAC","Role-Based Access Control"}, {"IaC","Infrastructure as Code"},
+    {"API","Application Programming Interface"}, {"REST","RESTful API"},
+    {"gRPC","gRPC"}, {"GraphQL","GraphQL"},
+    {"CLI","Command-Line Interface"}, {"GUI","Graphical User Interface"},
+    {"SDK","Software Development Kit"}, {"IDE","Integrated Development Environment"},
+    {"JSON","JSON"}, {"YAML","YAML"}, {"XML","XML"},
+    {"CSV","CSV"}, {"TSV","TSV"}, {"Proto","Protocol Buffers"},
+    {"TUI","Terminal User Interface"}, {"BPM","Business Process Management"},
+
+    // Protocols & infra
+    {"HTTP","HTTP"}, {"HTTPS","HTTPS"}, {"TCP","TCP"},
+    {"UDP","UDP"}, {"TLS","Transport Layer Security"},
+    {"mTLS","Mutual TLS"}, {"gRPC","gRPC"},
+    {"SSH","SSH"}, {"SFTP","SSH File Transfer"},
+    {"JWT","JSON Web Token"}, {"OAuth","OAuth"},
+    {"OIDC","OpenID Connect"}, {"SAML","SAML"},
+
+    // CI/CD & DevOps
+    {"CI","Continuous Integration"}, {"CD","Continuous Deployment"},
+    {"PR","Pull Request"}, {"MR","Merge Request"},
+    {"CR","Code Review"}, {"LGTM","Looks Good To Me"},
+    {"QA","Quality Assurance"}, {"QE","Quality Engineering"},
+    {"Stg","Staging"}, {"Prod","Production"},
+    {"Dev","Development"}, {"UAT","User Acceptance Testing"},
+    {"k8s","Kubernetes"}, {"K8s","Kubernetes"},
+    {"K3s","K3s"}, {"k3s","K3s"},
+    {"Dkr","Docker"}, {"Docker","Docker"},
+    {"Kustomize","Kustomize"}, {"Helm","Helm"},
+    {"Terraform","Terraform"}, {"Pulumi","Pulumi"},
+    {"Ansible","Ansible"}, {"Chef","Chef"},
+    {"Pup","Puppet"}, {"SRE","Site Reliability Engineering"},
+    {"SLI","Service Level Indicator"}, {"SLO","Service Level Objective"},
+    {"SLA","Service Level Agreement"},
+
+    // Architecture
+    {"CLI11","CLI11"}, {"ONNX","ONNX Runtime"},
+    {"CXX","C++"}, {"Py","Python"},
+    {"JS","JavaScript"}, {"TS","TypeScript"},
+    {"CPU","CPU"}, {"GPU","GPU"}, {"TPU","TPU"},
+    {"NPU","NPU"}, {"RAM","RAM"},
+    {"BIOS","BIOS"}, {"OS","Operating System"},
+    {"P2P","Peer-to-Peer"}, {"P2V","Physical-to-Virtual"},
+    {"V2V","Virtual-to-Virtual"},
+
+    // BPM / Analytics
+    {"KPI","Key Performance Indicator"}, {"OKR","Objectives and Key Results"},
+    {"ROI","Return on Investment"}, {"TCO","Total Cost of Ownership"},
+    {"T2M","Time to Market"}, {"CA","Cost Analysis"},
+    {"EA","Enterprise Architecture"}, {"ERP","Enterprise Resource Planning"},
+    {"CRM","Customer Relationship Management"},
+
+    // Math / Stats
+    {"SVD","Singular Value Decomposition"}, {"PCA","Principal Component Analysis"},
+    {"t-SNE","t-distributed Stochastic Neighbor Embedding"},
+    {"UMAP","Uniform Manifold Approximation"},
+    {"GMM","Gaussian Mixture Model"}, {"HMM","Hidden Markov Model"},
+    {"CRF","Conditional Random Field"}, {"SVM","Support Vector Machine"},
+    {"KNN","K-Nearest Neighbors"}, {"DT","Decision Tree"},
+    {"RF","Random Forest"}, {"GB","Gradient Boosting"},
+    {"GBM","Gradient Boosting Machine"}, {"XGB","XGBoost"},
+    {"LGBM","LightGBM"}, {"CB","CatBoost"},
+    {"MLP","Multilayer Perceptron"}, {"CNN","Convolutional Neural Network"},
+    {"RNN","Recurrent Neural Network"}, {"GRU","Gated Recurrent Unit"},
+    {"LSTM","Long Short-Term Memory"}, {"GAN","Generative Adversarial Network"},
+    {"VAE","Variational Autoencoder"}, {"AE","Autoencoder"},
+    {"MHA","Multi-Head Attention"}, {"FFN","Feed-Forward Network"},
+    {"LN","Layer Normalization"}, {"BN","Batch Normalization"},
+    {"ReLU","ReLU"}, {"GeLU","GeLU"}, {"SiLU","SiLU"},
+    {"Softmax","Softmax"}, {"Sig","Sigmoid"},
+
+    // Parser-specific
+    {"LLMZip","LLMZip"}, {"llmzip","llmzip"},
 };
 
 // Section markers
 static const std::vector<std::pair<std::string,std::string>> kSections = {
-    {"Req:","Requirements"}, {"Stack:","Technology Stack"},
-    {"Offer:","Proposed Solution"}, {"Opt:","Optional Elements"},
-    {"Arch:","Architecture"}, {"Ctx:","Session Context"},
-    {"Meta:","Metadata"}, {"Out:","Output Format"},
-    {"Err:","Error Handling"}, {"Test:","Test Scenarios"},
+    {"Proj:","Project"}, {"Status:","Status"},
+    {"Type:","Type"}, {"Stack:","Technology Stack"},
+    {"Arch:","Architecture"}, {"Mode:","Mode"},
+    {"IO:","Input/Output"}, {"Fmt:","Format"},
+    {"Dev:","Development"}, {"Perf:","Performance"},
+    {"Lic:","License"}, {"Meta:","Metadata"},
+    {"Req:","Requirements"}, {"Offer:","Proposed Solution"},
+    {"Opt:","Optional Elements"}, {"Ctx:","Session Context"},
+    {"Out:","Output Format"}, {"Err:","Error Handling"},
+    {"Test:","Test Scenarios"}, {"Conf:","Configuration"},
+    {"Deploy:","Deployment"}, {"Build:","Build"},
+    {"Doc:","Documentation"}, {"Roadmap:","Roadmap"},
+    {"Next:","Next Steps"},
 };
 
 // Domain prefixes
@@ -56,6 +161,10 @@ static const std::vector<std::pair<std::string,std::string>> kDomains = {
     {"Biz:","Business"}, {"Dev:","Development"},
     {"UX:","User Experience"}, {"Ops:","Operations"},
     {"AI:","AI Agent"}, {"Cache:","Caching"},
+    {"Net:","Networking"}, {"DB:","Database"},
+    {"FE:","Frontend"}, {"BE:","Backend"},
+    {"FS:","Full-Stack"}, {"QA:","Quality Assurance"},
+    {"Infra:","Infrastructure"}, {"Data:","Data"},
 };
 
 // Output modifiers (without the → leader, matched via pattern)
@@ -72,6 +181,13 @@ static const std::vector<std::pair<std::string,std::string>> kMods = {
     {"now","urgent"}, {"later","can defer"},
     {"review","review"}, {"compress","apply compression"},
     {"decompress","decode"}, {"roundtrip","verify reversibility"},
+    {"tech","technical focus"}, {"ready","ready for review"},
+    {"progress","in progress"}, {"done","completed"},
+    {"blocked","blocked"}, {"planned","planned"},
+    {"deprecated","deprecated"}, {"experimental","experimental"},
+    {"stable","stable"}, {"beta","beta"},
+    {"alpha","alpha"}, {"deprecated","deprecated"},
+    {"wip","work in progress"},
 };
 
 // Symbols
@@ -83,15 +199,60 @@ static const std::vector<std::pair<std::string,std::string>> kSymbols = {
 
 // Common compressible phrases (longer first for safety)
 static const std::vector<std::pair<std::string,std::string>> kPhrases = {
+    // AI/ML phrases
     {"large language model", "LLM"},
-    {"machine learning model", "ML:model"},
+    {"machine learning", "ML"},
+    {"deep learning", "DL"},
+    {"natural language processing", "NLP"},
+    {"retrieval augmented generation", "RAG"},
     {"context window", "CtxWin"},
     {"function calling", "FuncCall"},
     {"batch processing", "Batch"},
+    {"fine tuning", "FT"},
+    {"low rank adaptation", "LoRA"},
+    {"embedding model", "Embed"},
+    {"vector database", "VecDB"},
+    {"knowledge graph", "KG"},
+    {"named entity recognition", "NER"},
+    {"computer vision", "CV"},
+    {"speech recognition", "ASR"},
+    {"text to speech", "TTS"},
+
+    // DevOps / Infra
+    {"continuous integration", "CI"},
+    {"continuous deployment", "CD"},
     {"role based access control", "RBAC"},
     {"infrastructure as code", "IaC"},
+    {"site reliability engineering", "SRE"},
+    {"service level agreement", "SLA"},
+    {"service level objective", "SLO"},
+    {"service level indicator", "SLI"},
     {"pull request", "PR"},
     {"user experience", "UX"},
+    {"key performance indicator", "KPI"},
+    {"return on investment", "ROI"},
+    {"total cost of ownership", "TCO"},
+
+    // Architecture
+    {"command line interface", "CLI"},
+    {"graphical user interface", "GUI"},
+    {"application programming interface", "API"},
+    {"software development kit", "SDK"},
+    {"integrated development environment", "IDE"},
+    {"operating system", "OS"},
+    {"virtual machine", "VM"},
+    {"container orchestration", "k8s"},
+    {"transport layer security", "TLS"},
+    {"json web token", "JWT"},
+
+    // Business / Project
+    {"proof of concept", "PoC"},
+    {"minimum viable product", "MVP"},
+    {"time to market", "T2M"},
+    {"work in progress", "WIP"},
+    {"as soon as possible", "ASAP"},
+
+    // Status markers
     {"is required", " [req]"},
     {"is mandatory", " [crit]"},
     {"is critical", " [crit]"},
@@ -99,6 +260,13 @@ static const std::vector<std::pair<std::string,std::string>> kPhrases = {
     {"as soon as possible", " [urgent]"},
     {"compared to", " [cmp]"},
     {"step by step", " [steps]"},
+    {"in progress", " >"},
+    {"not implemented", " ~"},
+    {"planned for", " ~"},
+    {"already done", " ✅"},
+    {"completed", " ✅"},
+    {"finished", " ✅"},
+    {"requires attention", " ⚠"},
 };
 
 } // anonymous namespace
