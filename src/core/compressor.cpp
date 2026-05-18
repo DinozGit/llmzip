@@ -37,12 +37,18 @@ Compressor::~Compressor() = default;
 bool Compressor::initialize(const std::string& model_path) {
     pimpl_->model_path = model_path;
 
-    // Initialize ONNX if model path provided
-    if (!model_path.empty()) {
-        pimpl_->engine = std::make_unique<InferenceEngine>();
+    // Initialize ONNX — try file, or embedded model if path empty
+    pimpl_->engine = std::make_unique<InferenceEngine>();
+    if (model_path.empty()) {
+        pimpl_->onnx_available = pimpl_->engine->initialize();  // empty path = try embedded
+        if (!pimpl_->onnx_available) {
+            std::cerr << "[Compressor] Embedded model not found, protocol-only mode\n";
+        }
+    } else {
         pimpl_->onnx_available = pimpl_->engine->initialize(model_path);
         if (!pimpl_->onnx_available) {
-            std::cerr << "[Compressor] ONNX init failed, falling back to protocol-only\n";
+            std::cerr << "[Compressor] ONNX init failed for " << model_path
+                      << ", falling back to protocol-only\n";
         }
     }
 
