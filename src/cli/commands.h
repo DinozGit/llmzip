@@ -2,6 +2,7 @@
 
 #include <string>
 #include <vector>
+#include <cstdint>
 #include <functional>
 
 namespace llmzip {
@@ -40,8 +41,8 @@ public:
 private:
     // Внутренние утилиты
     std::string read_file(const std::string& path);
-    bool write_file(const std::string& path, const std::vector<uint8_t>& data);
-    bool write_file(const std::string& path, const std::string& text);
+    bool write_binary(const std::string& path, const std::vector<uint8_t>& data);
+    bool write_text(const std::string& path, const std::string& text);
     void print_progress(const std::string& message, bool verbose);
 };
 

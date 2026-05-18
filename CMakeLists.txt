@@ -26,7 +26,12 @@ endif()
 
 # Исходники ядра
 set(CORE_SOURCES
-    src/stubs.cpp
+    src/core/binary_format.cpp
+    src/core/protocol_parser.cpp
+    src/core/compressor.cpp
+    src/onnx/inference_engine.cpp
+    src/onnx/model_loader.cpp
+    src/cli/commands.cpp
 )
 
 # Основная библиотека ядра
@@ -42,6 +47,7 @@ target_include_directories(llmzip_core PUBLIC
 target_link_libraries(llmzip_core PUBLIC
     onnxruntime
     CLI11::CLI11
+    ZLIB::ZLIB
 )
 
 # Платформенные настройки
@@ -50,7 +56,7 @@ if(WIN32)
     if(USE_STATIC_RUNTIME)
         set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
-    
+
     if(BUILD_GUI)
         # Поиск SDL2 и ImGui для GUI
         find_package(SDL2 CONFIG QUIET)
@@ -82,11 +88,16 @@ endif()
 
 # Копирование ресурсов (модель по умолчанию)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx")
-    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx" 
+    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx"
          DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 endif()
+
+# find_package zlib
+find_package(ZLIB REQUIRED)
 
 message(STATUS "llmzip build configuration:")
 message(STATUS "  - Build GUI: ${BUILD_GUI}")
 message(STATUS "  - Platform: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  - C++ Standard: ${CMAKE_CXX_STANDARD}")
+message(STATUS "  - Core sources: binary_format protocol_parser compressor")
+message(STATUS "  - ONNX: inference_engine model_loader")

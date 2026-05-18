@@ -67,6 +67,9 @@ private:
     CompressionResult compress_lossy(const std::string& input);
     CompressionResult compress_lossless(const std::string& input);
     CompressionResult compress_hybrid(const std::string& input);
+    std::string decompress_lossless_impl(const std::string& compressed);
+    std::string decompress_lossy_impl(const std::string& compressed);
+    std::string decompress_hybrid_impl(const std::string& compressed);
     
     // Парсинг заголовка .lz файла
     bool parse_header(const std::vector<uint8_t>& data, std::string& mode, std::vector<uint8_t>& payload);

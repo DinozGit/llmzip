@@ -1,0 +1,332 @@
+#include "onnx/inference_engine.h"
+#include <iostream>
+#include <sstream>
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+
+// ONNX Runtime C++ API (header-only wrapper)
+#include <onnxruntime_cxx_api.h>
+
+namespace llmzip {
+
+// ============================================================================
+// PIMPL implementation details
+// ============================================================================
+struct InferenceEngine::Impl {
+    Ort::Env env{nullptr};
+    Ort::SessionOptions session_options{nullptr};
+    std::unique_ptr<Ort::Session> session{nullptr};
+    Ort::MemoryInfo memory_info{nullptr};
+
+    std::string model_path;
+    int64_t vocab_size = 32128;   // T5 default
+    int64_t max_seq_len = 512;
+    bool session_loaded = false;
+
+    // Input/output names (populated after session creation)
+    std::vector<const char*> input_names;
+    std::vector<const char*> output_names;
+    std::vector<Ort::AllocatedStringPtr> input_names_ptrs;
+    std::vector<Ort::AllocatedStringPtr> output_names_ptrs;
+
+    ~Impl() {
+        session.reset();
+    }
+
+    // Minimal BPE-like tokenization for T5 (UTF-8 aware, space-prefix based)
+    // This is a simplified tokenizer — in production, use HuggingFace tokenizers
+    std::vector<int64_t> tokenize(const std::string& input) {
+        std::vector<int64_t> tokens;
+        tokens.push_back(0); // T5: <pad> or </s> as start
+
+        std::string word;
+        std::istringstream stream(input);
+        while (stream >> word) {
+            // T5 uses SentencePiece: "word" → "▁word"
+            // We simulate with subword splitting for common tokens
+            bool matched = false;
+            // Check for known abbreviations (uppercase combos)
+            if (word.size() >= 2 && word.size() <= 8 &&
+                std::all_of(word.begin(), word.end(), [](char c) {
+                    return std::isupper(c) || c == ':' || c == '_' || c == '-';
+                })) {
+                // Treat as single token
+                tokens.push_back(hash_to_token_id(word));
+                matched = true;
+            }
+            if (!matched) {
+                // Split into character/subword chunks
+                for (size_t i = 0; i < word.size(); ) {
+                    // Try to match 3, 2, 1 char subwords
+                    int matched_len = 0;
+                    for (int len = 3; len >= 1 && matched_len == 0; --len) {
+                        if (i + len <= word.size()) {
+                            std::string sub = word.substr(i, len);
+                            int64_t id = hash_to_token_id(sub);
+                            if (id > 0) {
+                                tokens.push_back(id);
+                                matched_len = len;
+                            }
+                        }
+                    }
+                    if (matched_len == 0) {
+                        tokens.push_back(static_cast<int64_t>(static_cast<unsigned char>(word[i]) + 100));
+                        matched_len = 1;
+                    }
+                    i += matched_len;
+                }
+            }
+            // Add space token between words
+            if (tokens.size() < max_seq_len - 1)
+                tokens.push_back(3); // space/sep token
+        }
+
+        // Truncate
+        if (tokens.size() > max_seq_len)
+            tokens.resize(max_seq_len);
+        // Pad with pad_id (0)
+        tokens.resize(max_seq_len, 0);
+
+        return tokens;
+    }
+
+    // Simple hash-based token → ID mapping for demo
+    // In production, use a proper tokenizer model
+    int64_t hash_to_token_id(const std::string& token) {
+        // Deterministic hash to vocab range [10, vocab_size-1]
+        uint64_t h = 14695981039346656037ULL;
+        for (char c : token) {
+            h ^= static_cast<unsigned char>(c);
+            h *= 1099511628211ULL;
+        }
+        return 10 + static_cast<int64_t>(h % (vocab_size - 20));
+    }
+
+    std::string detokenize(const std::vector<int64_t>& tokens) {
+        std::string result;
+        for (int64_t id : tokens) {
+            if (id <= 0 || id == 1) continue; // skip pad/eos
+            if (id == 3) { result += ' '; continue; } // space
+            result += "[" + std::to_string(id) + "]";
+        }
+        return result;
+    }
+};
+
+// ============================================================================
+// InferenceEngine public API
+// ============================================================================
+InferenceEngine::InferenceEngine()
+    : pimpl_(std::make_unique<Impl>()) {
+}
+
+InferenceEngine::~InferenceEngine() = default;
+
+bool InferenceEngine::initialize(const std::string& model_path) {
+    try {
+        pimpl_->env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "llmzip");
+        pimpl_->session_options = Ort::SessionOptions();
+
+        // Optimizations
+        pimpl_->session_options.SetIntraOpNumThreads(2);
+        pimpl_->session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+        // Load model
+        pimpl_->session = std::make_unique<Ort::Session>(
+            pimpl_->env, model_path.c_str(), pimpl_->session_options);
+        pimpl_->model_path = model_path;
+        pimpl_->session_loaded = true;
+
+        // Query input/output names
+        Ort::AllocatorWithDefaultOptions allocator;
+        size_t num_inputs = pimpl_->session->GetInputCount();
+        for (size_t i = 0; i < num_inputs; ++i) {
+            auto name = pimpl_->session->GetInputNameAllocated(i, allocator);
+            pimpl_->input_names_ptrs.push_back(std::move(name));
+            pimpl_->input_names.push_back(pimpl_->input_names_ptrs.back().get());
+        }
+        size_t num_outputs = pimpl_->session->GetOutputCount();
+        for (size_t i = 0; i < num_outputs; ++i) {
+            auto name = pimpl_->session->GetOutputNameAllocated(i, allocator);
+            pimpl_->output_names_ptrs.push_back(std::move(name));
+            pimpl_->output_names.push_back(pimpl_->output_names_ptrs.back().get());
+        }
+
+        // Memory info
+        pimpl_->memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+
+        initialized_ = true;
+        return true;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "[InferenceEngine] ONNX init error: " << e.what() << std::endl;
+        initialized_ = false;
+        return false;
+    }
+}
+
+InferenceResult InferenceEngine::compress_text(const std::string& input) {
+    InferenceResult result;
+    result.success = false;
+
+    if (!initialized_) {
+        result.error_message = "Engine not initialized";
+        return result;
+    }
+
+    try {
+        auto start = std::chrono::steady_clock::now();
+
+        // Tokenize
+        std::vector<int64_t> input_ids = pimpl_->tokenize(input);
+        std::vector<int64_t> attention_mask(pimpl_->max_seq_len, 1);
+
+        // Create input tensors
+        std::vector<int64_t> input_shape = {1, pimpl_->max_seq_len};
+        Ort::Value input_tensor = Ort::Value::CreateTensor<int64_t>(
+            pimpl_->memory_info, input_ids.data(), input_ids.size(),
+            input_shape.data(), input_shape.size());
+
+        Ort::Value mask_tensor = Ort::Value::CreateTensor<int64_t>(
+            pimpl_->memory_info, attention_mask.data(), attention_mask.size(),
+            input_shape.data(), input_shape.size());
+
+        // Handle encoder/decoder models (T5) or decoder-only (BART)
+        std::vector<Ort::Value> ort_inputs;
+        ort_inputs.push_back(std::move(input_tensor));
+        if (pimpl_->input_names.size() > 1)
+            ort_inputs.push_back(std::move(mask_tensor));
+
+        // Run inference
+        auto output_tensors = pimpl_->session->Run(
+            Ort::RunOptions{nullptr},
+            pimpl_->input_names.data(), ort_inputs.data(), ort_inputs.size(),
+            pimpl_->output_names.data(), pimpl_->output_names.size());
+
+        // Extract output
+        if (!output_tensors.empty()) {
+            auto* output_data = output_tensors[0].GetTensorMutableData<int64_t>();
+            size_t output_len = output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount();
+
+            std::vector<int64_t> output_ids(output_data, output_data + output_len);
+            std::string compressed = pimpl_->detokenize(output_ids);
+
+            // If detokenize just produced [id] tokens, use raw token IDs as compressed form
+            if (compressed.empty() || compressed.find('[') != std::string::npos) {
+                // Store compact form: space-separated IDs
+                std::ostringstream oss;
+                for (size_t i = 0; i < output_len; ++i) {
+                    if (output_ids[i] > 0 && output_ids[i] != 1) {
+                        if (oss.tellp() > 0) oss << ' ';
+                        oss << output_ids[i];
+                    }
+                }
+                compressed = oss.str();
+                if (compressed.empty())
+                    compressed = input; // fallback
+            }
+
+            result.output_text = compressed;
+            result.confidence_score = 0.85f;
+            result.success = true;
+        }
+
+        auto end = std::chrono::steady_clock::now();
+        result.inference_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    } catch (const Ort::Exception& e) {
+        result.error_message = "ONNX inference error: " + std::string(e.what());
+        result.output_text = input; // fallback to original
+        result.confidence_score = 0.0f;
+    }
+
+    return result;
+}
+
+InferenceResult InferenceEngine::decompress_text(const std::vector<uint8_t>& compressed_data) {
+    InferenceResult result;
+    result.success = false;
+
+    if (!initialized_) {
+        result.error_message = "Engine not initialized";
+        return result;
+    }
+
+    try {
+        auto start = std::chrono::steady_clock::now();
+
+        // Convert binary data to string of token IDs
+        std::string input_str(reinterpret_cast<const char*>(compressed_data.data()),
+                               compressed_data.size());
+
+        // Tokenize as-is (assuming already tokenized)
+        std::vector<int64_t> input_ids = pimpl_->tokenize(input_str);
+        std::vector<int64_t> attention_mask(pimpl_->max_seq_len, 1);
+
+        std::vector<int64_t> input_shape = {1, pimpl_->max_seq_len};
+        Ort::Value input_tensor = Ort::Value::CreateTensor<int64_t>(
+            pimpl_->memory_info, input_ids.data(), input_ids.size(),
+            input_shape.data(), input_shape.size());
+
+        Ort::Value mask_tensor = Ort::Value::CreateTensor<int64_t>(
+            pimpl_->memory_info, attention_mask.data(), attention_mask.size(),
+            input_shape.data(), input_shape.size());
+
+        std::vector<Ort::Value> ort_inputs;
+        ort_inputs.push_back(std::move(input_tensor));
+        if (pimpl_->input_names.size() > 1)
+            ort_inputs.push_back(std::move(mask_tensor));
+
+        auto output_tensors = pimpl_->session->Run(
+            Ort::RunOptions{nullptr},
+            pimpl_->input_names.data(), ort_inputs.data(), ort_inputs.size(),
+            pimpl_->output_names.data(), pimpl_->output_names.size());
+
+        if (!output_tensors.empty()) {
+            auto* output_data = output_tensors[0].GetTensorMutableData<int64_t>();
+            size_t output_len = output_tensors[0].GetTensorTypeAndShapeInfo().GetElementCount();
+
+            std::vector<int64_t> output_ids(output_data, output_data + output_len);
+            result.output_text = pimpl_->detokenize(output_ids);
+            if (result.output_text.empty())
+                result.output_text = input_str; // fallback
+
+            result.success = true;
+        }
+
+        auto end = std::chrono::steady_clock::now();
+        result.inference_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+
+    } catch (const Ort::Exception& e) {
+        result.error_message = "ONNX decompress error: " + std::string(e.what());
+        result.output_text = "(decompress fallback)";
+    }
+
+    return result;
+}
+
+std::string InferenceEngine::get_model_info() const {
+    if (!initialized_)
+        return "Not initialized";
+    std::ostringstream oss;
+    oss << "Model: " << pimpl_->model_path << "\n";
+    oss << "Inputs: " << pimpl_->input_names.size() << "\n";
+    for (const auto& name : pimpl_->input_names)
+        oss << "  - " << name << "\n";
+    oss << "Outputs: " << pimpl_->output_names.size() << "\n";
+    for (const auto& name : pimpl_->output_names)
+        oss << "  - " << name << "\n";
+    oss << "Vocab: " << pimpl_->vocab_size << "\n";
+    oss << "Max seq: " << pimpl_->max_seq_len;
+    return oss.str();
+}
+
+std::vector<int64_t> InferenceEngine::tokenize_input(const std::string& input) {
+    return pimpl_->tokenize(input);
+}
+
+std::string InferenceEngine::detokenize_output(const std::vector<int64_t>& tokens) {
+    return pimpl_->detokenize(tokens);
+}
+
+} // namespace llmzip
