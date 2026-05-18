@@ -79,10 +79,8 @@ add_executable(llmzip
     src/cli/main.cpp
 )
 
-target_link_libraries(llmzip PRIVATE llmzip_core)
-
 if(EMBED_MODEL)
-    # Embed ONNX model as binary resource (portable across GCC/Clang)
+    # Embed ONNX model as binary resource
     set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
     if(EXISTS "${MODEL_ONNX}")
         message(STATUS "Embedding ONNX model: ${MODEL_ONNX}")
@@ -94,7 +92,7 @@ if(EMBED_MODEL)
         )
         add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
         add_dependencies(llmzip model_embedded)
-        # Link .o only to the final executable; symbols resolve for llmzip_core at link time
+        # Link model BEFORE llmzip_core so symbols resolve (GNU ld left-to-right)
         target_link_libraries(llmzip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
     else()
         message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
@@ -102,6 +100,8 @@ if(EMBED_MODEL)
     target_compile_definitions(llmzip PRIVATE EMBED_MODEL)
     target_compile_definitions(llmzip_core PRIVATE EMBED_MODEL)
 endif()
+
+target_link_libraries(llmzip PRIVATE llmzip_core)
 
 # Установка
 install(TARGETS llmzip DESTINATION bin)
