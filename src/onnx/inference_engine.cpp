@@ -8,6 +8,15 @@
 // ONNX Runtime C++ API (header-only wrapper)
 #include <onnxruntime_cxx_api.h>
 
+// Embedded model symbols (from ld -r -b binary)
+// Provided by linker when EMBED_MODEL=ON and model.onnx is linked as binary resource
+#ifdef EMBED_MODEL
+extern "C" {
+    extern const unsigned char _binary_model_onnx_start[];
+    extern const unsigned char _binary_model_onnx_end[];
+}
+#endif
+
 namespace llmzip {
 
 // ============================================================================
@@ -91,7 +100,7 @@ struct InferenceEngine::Impl {
         return tokens;
     }
 
-    // Simple hash-based token → ID mapping for demo
+    // Simple hash-based token ID mapping for demo
     // In production, use a proper tokenizer model
     int64_t hash_to_token_id(const std::string& token) {
         // Deterministic hash to vocab range [10, vocab_size-1]
@@ -123,7 +132,74 @@ InferenceEngine::InferenceEngine()
 
 InferenceEngine::~InferenceEngine() = default;
 
+// ---------------------------------------------------------------------------
+// initialize_embedded — load model from linker-embedded binary
+// ---------------------------------------------------------------------------
+bool InferenceEngine::initialize_embedded() {
+#ifdef EMBED_MODEL
+    try {
+        const size_t model_size = _binary_model_onnx_end - _binary_model_onnx_start;
+        if (model_size == 0) {
+            std::cerr << "[InferenceEngine] Embedded model is empty\n";
+            initialized_ = false;
+            return false;
+        }
+
+        pimpl_->env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "llmzip-embedded");
+        pimpl_->session_options = Ort::SessionOptions();
+        pimpl_->session_options.SetIntraOpNumThreads(2);
+        pimpl_->session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+
+        // Load model from memory buffer
+        pimpl_->session = std::make_unique<Ort::Session>(
+            pimpl_->env,
+            _binary_model_onnx_start,
+            model_size,
+            pimpl_->session_options);
+        pimpl_->model_path = "[embedded]";
+        pimpl_->session_loaded = true;
+
+        // Query input/output names
+        Ort::AllocatorWithDefaultOptions allocator;
+        size_t num_inputs = pimpl_->session->GetInputCount();
+        for (size_t i = 0; i < num_inputs; ++i) {
+            auto name = pimpl_->session->GetInputNameAllocated(i, allocator);
+            pimpl_->input_names_ptrs.push_back(std::move(name));
+            pimpl_->input_names.push_back(pimpl_->input_names_ptrs.back().get());
+        }
+        size_t num_outputs = pimpl_->session->GetOutputCount();
+        for (size_t i = 0; i < num_outputs; ++i) {
+            auto name = pimpl_->session->GetOutputNameAllocated(i, allocator);
+            pimpl_->output_names_ptrs.push_back(std::move(name));
+            pimpl_->output_names.push_back(pimpl_->output_names_ptrs.back().get());
+        }
+
+        pimpl_->memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+
+        initialized_ = true;
+        std::cout << "[InferenceEngine] Loaded embedded model (" << (model_size / 1048576) << " MB)\n";
+        return true;
+    } catch (const Ort::Exception& e) {
+        std::cerr << "[InferenceEngine] Embedded model init error: " << e.what() << std::endl;
+        initialized_ = false;
+        return false;
+    }
+#else
+    std::cerr << "[InferenceEngine] Model not embedded (compile with -DEMBED_MODEL=ON)\n";
+    initialized_ = false;
+    return false;
+#endif
+}
+
+// ---------------------------------------------------------------------------
+// initialize — load model from file, or from embedded binary if path is empty
+// ---------------------------------------------------------------------------
 bool InferenceEngine::initialize(const std::string& model_path) {
+    // If no path given, try embedded model first
+    if (model_path.empty()) {
+        return initialize_embedded();
+    }
+
     try {
         pimpl_->env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "llmzip");
         pimpl_->session_options = Ort::SessionOptions();
@@ -132,7 +208,7 @@ bool InferenceEngine::initialize(const std::string& model_path) {
         pimpl_->session_options.SetIntraOpNumThreads(2);
         pimpl_->session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
 
-        // Load model
+        // Load model from file
         pimpl_->session = std::make_unique<Ort::Session>(
             pimpl_->env, model_path.c_str(), pimpl_->session_options);
         pimpl_->model_path = model_path;

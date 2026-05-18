@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Опции сборки
 option(BUILD_GUI "Build GUI for Windows" OFF)
 option(USE_STATIC_RUNTIME "Link static runtime (Windows)" OFF)
+option(EMBED_MODEL "Embed ONNX model into binary" OFF)
 
 # Поиск зависимостей
 find_package(onnxruntime REQUIRED)
@@ -80,17 +81,36 @@ add_executable(llmzip
 
 target_link_libraries(llmzip PRIVATE llmzip_core)
 
+if(EMBED_MODEL)
+    # Embed ONNX model as binary resource (portable across GCC/Clang)
+    set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
+    if(EXISTS "${MODEL_ONNX}")
+        message(STATUS "Embedding ONNX model: ${MODEL_ONNX}")
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o
+            COMMAND ${CMAKE_LINKER} -r -b binary -o model_embedded.o "${MODEL_ONNX}"
+            DEPENDS "${MODEL_ONNX}"
+            COMMENT "Embedding ONNX model into binary..."
+        )
+        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
+        add_dependencies(llmzip model_embedded)
+        target_link_libraries(llmzip PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
+        # Also add to static lib so it can use the symbols
+        target_link_libraries(llmzip_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
+    else()
+        message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
+    endif()
+    target_compile_definitions(llmzip PRIVATE EMBED_MODEL)
+    target_compile_definitions(llmzip_core PRIVATE EMBED_MODEL)
+endif()
+
 # Установка
 install(TARGETS llmzip DESTINATION bin)
 if(BUILD_GUI AND WIN32)
     install(TARGETS llmzip_gui DESTINATION bin)
 endif()
 
-# Копирование ресурсов (модель по умолчанию)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx")
-    file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/resources/model.onnx"
-         DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
-endif()
+
 
 # find_package zlib
 find_package(ZLIB REQUIRED)

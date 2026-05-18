@@ -26,8 +26,11 @@ public:
     InferenceEngine();
     ~InferenceEngine();
 
-    // Инициализация с загрузкой модели
-    bool initialize(const std::string& model_path);
+    // Load from file or embedded automatically (empty path = auto-detect embedded)
+    bool initialize(const std::string& model_path = "");
+
+    // Инициализация со встроенной моделью (linker symbols _binary_model_onnx_start etc)
+    bool initialize_embedded();
     
     // Выполнение инференса для сжатия текста
     InferenceResult compress_text(const std::string& input);
