@@ -321,26 +321,13 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
         // encoder_hidden_states is missing — the model expects it
         // decoder_input_ids may also be expected
 
-        // Detect what the model wants
-        bool has_encoder_hidden_input = false;
-        bool has_decoder_input_ids = false;
-        bool has_attention_mask = false;
-
-        for (const auto& name : pimpl_->input_names) {
-            std::string n(name);
-            if (n == "encoder_hidden_states") has_encoder_hidden_input = true;
-            else if (n == "decoder_input_ids") has_decoder_input_ids = true;
-            else if (n == "attention_mask") has_attention_mask = true;
-        }
-
-        // Build decoder hidden states placeholder (if needed)
-        // Shape: [1, seq_len, d_model] — we don't know exact dims, use 768 (T5-base) or 512 (T5-small)
-        const int64_t d_model = 512; // T5-small hidden size
+        // Build encoder hidden states placeholder (zero-initialized float32)
+        // Model expects: encoder_hidden_states : float32 shape=[?,?,512]
+        const int64_t d_model = 512;
         std::vector<int64_t> hidden_shape = {1, (int64_t)pimpl_->max_seq_len, d_model};
         size_t hidden_elems = 1 * pimpl_->max_seq_len * d_model;
-        // Model expects int64 despite type info saying float32 (quantization quirk)
-        std::vector<int64_t> dummy_hidden(hidden_elems, 0);
-        Ort::Value hidden_tensor = Ort::Value::CreateTensor<int64_t>(
+        std::vector<float> dummy_hidden(hidden_elems, 0.0f);
+        Ort::Value hidden_tensor = Ort::Value::CreateTensor<float>(
             pimpl_->memory_info, dummy_hidden.data(), dummy_hidden.size(),
             hidden_shape.data(), hidden_shape.size());
 
@@ -353,21 +340,19 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
                     Ort::Value::CreateTensor<int64_t>(
                         pimpl_->memory_info, input_ids.data(), input_ids.size(),
                         input_shape.data(), input_shape.size())));
-            } else if (name == "attention_mask") {
+            } else if (name == "encoder_attention_mask") {
                 ort_inputs.push_back(std::move(
                     Ort::Value::CreateTensor<int64_t>(
                         pimpl_->memory_info, attention_mask.data(), attention_mask.size(),
                         input_shape.data(), input_shape.size())));
-            } else if (name == "decoder_input_ids") {
-                ort_inputs.push_back(std::move(decoder_input_tensor));
             } else if (name == "encoder_hidden_states") {
-                // Provide dummy — the fused graph will compute actual values
+                // float32 dummy — actual values computed inside the fused graph
                 ort_inputs.push_back(std::move(hidden_tensor));
             } else {
-                // Unknown input — provide dummy float tensor
-                std::vector<float> dummy(1, 0.0f);
+                // Unknown input — int64 zeros (safe default)
+                std::vector<int64_t> dummy(1, 0);
                 ort_inputs.push_back(std::move(
-                    Ort::Value::CreateTensor<float>(
+                    Ort::Value::CreateTensor<int64_t>(
                         pimpl_->memory_info, dummy.data(), dummy.size(),
                         std::vector<int64_t>{1, 1}.data(), 2)));
             }
