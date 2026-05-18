@@ -117,7 +117,6 @@ int Commands::decompress(const CommandContext& ctx) {
     file.seekg(0, std::ios::beg);
     std::vector<uint8_t> data(sz);
     file.read(reinterpret_cast<char*>(data.data()), sz);
-    ::close(sz);  // dummy
 
     print_progress("Decompressing...", ctx.verbose);
 
