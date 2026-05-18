@@ -85,6 +85,8 @@ int main(int argc, char** argv) {
     llmzip::cli::CommandContext ctx;
     ctx.verbose = verbose;
     ctx.model_path = model_path;
+    ctx.use_stdin = false;
+    ctx.use_stdout = false;
 
     // Обработка команд
     if (*compress_cmd) {
