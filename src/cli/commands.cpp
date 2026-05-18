@@ -88,9 +88,12 @@ int Commands::decompress(const CommandContext& ctx) {
             std::cerr << "Error: cannot open " << ctx.input_file << "\n";
             return 1;
         }
-        data.assign(std::istreambuf_iterator<char>(file), {});
+        char c;
+        while (file.get(c))
+            data.push_back(static_cast<uint8_t>(c));
     }
 
+    std::cerr << "[dbg] read " << data.size() << " bytes\n";
     if (data.empty()) {
         std::cerr << "Error: empty input\n";
         return 1;
@@ -102,6 +105,9 @@ int Commands::decompress(const CommandContext& ctx) {
     Compressor compressor;
     compressor.initialize();
     auto result = compressor.decompress(data);
+    
+    if (ctx.verbose && !result.success)
+        std::cerr << "Decompress error: " << result.error_message << "\n";
 
     if (!result.success) {
         std::cerr << "Decompression failed: " << result.error_message << "\n";
