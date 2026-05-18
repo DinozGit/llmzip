@@ -43,6 +43,7 @@ private:
     std::string read_file(const std::string& path);
     bool write_binary(const std::string& path, const std::vector<uint8_t>& data);
     bool write_text(const std::string& path, const std::string& text);
+    int decompress_file(const std::vector<uint8_t>& data, const CommandContext& ctx);
     void print_progress(const std::string& message, bool verbose);
 };
 
