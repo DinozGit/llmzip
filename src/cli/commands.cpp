@@ -110,6 +110,7 @@ int Commands::decompress(const CommandContext& ctx) {
         return 1;
     }
     auto sz = file.tellg();
+    std::cerr << "DBG sz=" << sz << "\n";
     if (sz <= 0) {
         std::cerr << "Error: empty input\n";
         return 1;
@@ -117,6 +118,7 @@ int Commands::decompress(const CommandContext& ctx) {
     file.seekg(0, std::ios::beg);
     std::vector<uint8_t> data(sz);
     file.read(reinterpret_cast<char*>(data.data()), sz);
+    std::cerr << "DBG data.size=" << data.size() << "\n";
 
     print_progress("Decompressing...", ctx.verbose);
 
