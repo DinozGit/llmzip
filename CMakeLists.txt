@@ -41,14 +41,15 @@ if(EMBED_MODEL)
     if(EXISTS "${MODEL_ONNX}")
         message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
         add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c
-            COMMAND xxd -i -n model_onnx "${MODEL_ONNX}" > model_embedded.c
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
+            COMMAND xxd -i -n model_onnx "${MODEL_ONNX}" > ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
             DEPENDS "${MODEL_ONNX}"
             COMMENT "Converting ONNX model to C source..."
         )
-        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
-        list(APPEND CORE_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
-        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c PROPERTIES GENERATED TRUE)
+        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp)
+        set(MODEL_EMBEDDED_C "${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp")
+        list(APPEND CORE_SOURCES "${MODEL_EMBEDDED_C}")
+        set_source_files_properties("${MODEL_EMBEDDED_C}" PROPERTIES GENERATED TRUE)
     else()
         message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
     endif()
