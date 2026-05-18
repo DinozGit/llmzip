@@ -338,8 +338,9 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
         const int64_t d_model = 512; // T5-small hidden size
         std::vector<int64_t> hidden_shape = {1, (int64_t)pimpl_->max_seq_len, d_model};
         size_t hidden_elems = 1 * pimpl_->max_seq_len * d_model;
-        std::vector<float> dummy_hidden(hidden_elems, 0.0f);
-        Ort::Value hidden_tensor = Ort::Value::CreateTensor<float>(
+        // Model expects int64 despite type info saying float32 (quantization quirk)
+        std::vector<int64_t> dummy_hidden(hidden_elems, 0);
+        Ort::Value hidden_tensor = Ort::Value::CreateTensor<int64_t>(
             pimpl_->memory_info, dummy_hidden.data(), dummy_hidden.size(),
             hidden_shape.data(), hidden_shape.size());
 
