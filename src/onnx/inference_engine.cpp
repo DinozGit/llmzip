@@ -178,6 +178,41 @@ bool InferenceEngine::initialize_embedded() {
 
         initialized_ = true;
         std::cout << "[InferenceEngine] Loaded embedded model (" << (model_size / 1048576) << " MB)\n";
+
+        // Debug: print input info
+        std::cerr << "[InferenceEngine] Model inputs:\n";
+        for (size_t i = 0; i < pimpl_->input_names.size(); ++i) {
+            auto type_info = pimpl_->session->GetInputTypeInfo(i);
+            auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+            auto shape = tensor_info.GetShape();
+            std::string type_str;
+            auto elem = tensor_info.GetElementType();
+            if (elem == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) type_str = "float32";
+            else if (elem == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) type_str = "int64";
+            else if (elem == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT32) type_str = "int32";
+            else type_str = "type=" + std::to_string(elem);
+            std::cerr << "  [" << i << "] " << pimpl_->input_names[i] << " : " << type_str << " shape=[";
+            for (size_t d = 0; d < shape.size(); ++d) {
+                if (d > 0) std::cerr << ",";
+                if (shape[d] < 0) std::cerr << "?";
+                else std::cerr << shape[d];
+            }
+            std::cerr << "]\n";
+        }
+        std::cerr << "[InferenceEngine] Model outputs:\n";
+        for (size_t i = 0; i < pimpl_->output_names.size(); ++i) {
+            auto type_info = pimpl_->session->GetOutputTypeInfo(i);
+            auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+            auto shape = tensor_info.GetShape();
+            std::cerr << "  [" << i << "] " << pimpl_->output_names[i] << " shape=[";
+            for (size_t d = 0; d < shape.size(); ++d) {
+                if (d > 0) std::cerr << ",";
+                if (shape[d] < 0) std::cerr << "?";
+                else std::cerr << shape[d];
+            }
+            std::cerr << "]\n";
+        }
+
         return true;
     } catch (const Ort::Exception& e) {
         std::cerr << "[InferenceEngine] Embedded model init error: " << e.what() << std::endl;
