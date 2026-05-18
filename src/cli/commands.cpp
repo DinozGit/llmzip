@@ -91,7 +91,7 @@ int Commands::decompress(const CommandContext& ctx) {
         return 1;
     }
     std::vector<uint8_t> data(std::istreambuf_iterator<char>(file),
-                                std::istreambuf_iterator<char>());
+                                {});
 
     if (data.empty()) {
         std::cerr << "Error: empty input\n";
