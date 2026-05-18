@@ -198,7 +198,12 @@ CompressionResult Compressor::compress_lossy(const std::string& input) {
     if (pimpl_->onnx_available && pimpl_->engine) {
         auto onnx_result = pimpl_->engine->compress_text(protocol_text);
         if (onnx_result.success && !onnx_result.output_text.empty()) {
+            std::cerr << "[lossy] ONNX input: " << protocol_text.size() << " B"
+                      << " -> output: " << onnx_result.output_text.size() << " B"
+                      << " (" << onnx_result.inference_time_ms << " ms)\n";
             protocol_text = onnx_result.output_text;
+        } else {
+            std::cerr << "[lossy] ONNX fallback, error: " << onnx_result.error_message << "\n";
         }
     }
 
