@@ -129,4 +129,94 @@ ssh root@31.128.36.227 "cd /root/llmzip && ./build/llmzip compress README.md -o 
 
 ---
 
-**Последний коммит**: `d761f0f` Expand ProtocolParser: +140 abbreviations, +10 sections, +5 domains, +12 mods, +25 phrases
+**Последний коммит**: `5e7cdd2` Add PROGRESS.md with full session context for next chat
+
+---
+
+## 🎯 Вердикт
+
+Архитектура зрелая, пайплайн корректно разделён, roundtrip-валидация работает. Единственный критический блокер — токенизатор + отсутствие seq2seq-декодирования в ONNX. Без этого LLM-слой останется заглушкой.
+
+### Root Cause & Technical Fix
+
+| Проблема | Причина | Решение |
+|---|---|---|
+| output == input | Hash-токенизатор ломает границы субслов. T5 ожидает SentencePiece (Unigram LM). Модель видит OOV-токены → игнорирует контекст. | Интегрировать sentencepiece C++ API или llama.cpp tokenizer. |
+| Нет семантического сжатия | ONNX Runtime не поддерживает авто-регрессивную генерацию из коробки. Нужен цикл decoding + логиты. | Реализовать Greedy/Beam-декодирование вручную или подключить onnxruntime-genai. |
+| ProtocolParser → 8.8% на README | Текст уже оптимизирован. Словарная замена не переписывает структуру. | Двухфазный пайплайн: ProtocolParser → AI-Structurer → Binary. |
+
+---
+
+## 🛠️ Пошаговый план внедрения (Next Chat)
+
+### 1. SentencePiece Tokenizer (C++)
+
+```python
+# Экспорт модели из HuggingFace
+pip install sentencepiece transformers
+python -c "from transformers import AutoTokenizer; t=AutoTokenizer.from_pretrained('google/flan-t5-small'); t.sp_model.save('spiece.model')"
+```
+
+- Подключить sentencepiece как static lib (`-DSPM_ENABLE_SHARED=OFF`)
+- В `InferenceEngine::tokenize()`: `sp.Encode(text, &ids)` + добавление decoder_start_token_id (0 для T5)
+- Для detokenize: `sp.Decode(ids)` → string
+
+### 2. ONNX Seq2Seq Decoding Loop
+
+ONNX Runtime не генерирует текст автоматически. Нужен явный цикл:
+
+```cpp
+// Псевдокод
+std::vector<int> generate(std::string prompt, int max_tokens=64) {
+    auto ids = tokenize(prompt);
+    for (int i=0; i<max_tokens; ++i) {
+        auto logits = run_encoder_decoder(ids);
+        int next_token = argmax(logits);
+        if (next_token == EOS) break;
+        ids.push_back(next_token);
+    }
+    return ids;
+}
+```
+
+- Экспортировать модель в две части: `encoder.onnx` + `decoder.onnx` (с past_key_values для кэша)
+- Или использовать `onnxruntime-genai` (поддержка T5 out-of-the-box)
+
+### 3. Prompt Template для Сжатия
+
+```
+[INST] Compress this text into semantic markers.
+Keep all facts, remove filler, use protocol syntax.
+Max output: 150 tokens.
+Text: {user_input} [/INST]
+```
+
+---
+
+## 📈 Реалистичная стратегия сжатия
+
+| Фаза | Механизм | Ожидаемое сжатие | Зависимости |
+|---|---|---|---|
+| v1 | ProtocolParser (словарь) | 10-30% | ✅ Готово |
+| v2 | ProtocolParser + LLM-структурирование | 40-60% | ⏳ SentencePiece + Decoding |
+| v3 | LLM-переписывание → Binary | 60-80% | ⏳ Prompt-tuning + Token budget |
+
+⚠️ **Важно:** 70-90% достижимо только через семантический рерайт, а не замену слов. LLM должен:
+- Вычленить сущности/метрики/требования
+- Сопоставить с маркерами core_rules.md
+- Упаковать в `Key:Value; →modifiers`
+- Отбросить воду, повторы, пояснения
+
+---
+
+## ⏭️ Приоритеты на следующий спринт
+
+- ✅ **SentencePiece интеграция (2-3 ч)** — без этого ONNX бесполезен
+- ✅ **Decoding loop (3-4 ч)** — greedy first, beam later
+- ✅ **Validation script (1 ч)** — `echo "test" | llmzip compress --llm` → roundtrip check
+- 🔄 **Prompt engineering (2 ч)** — шаблоны под разные домены (Dev/AI/Biz)
+- 📊 **Benchmark** — замер latency / RAM / compression_ratio на 3-х текстах
+
+---
+
+**Последний коммит**: `5e7cdd2` Add PROGRESS.md with full session context for next chat
