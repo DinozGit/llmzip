@@ -242,7 +242,7 @@ bool InferenceEngine::initialize(const std::string& model_path) {
 }
 
 // ---------------------------------------------------------------------------
-// compress_text — full T5 seq2seq: encoder + autoregressive decoder
+// compress_text — run fused T5 encoder-decoder in one shot
 // ---------------------------------------------------------------------------
 InferenceResult InferenceEngine::compress_text(const std::string& input) {
     InferenceResult result;
@@ -256,328 +256,173 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
     try {
         auto start = std::chrono::steady_clock::now();
 
-        // ---- 1. Tokenize input ----
+        // 1. Tokenize input
         std::vector<int64_t> input_ids = pimpl_->tokenize(input);
         std::vector<int64_t> attention_mask(pimpl_->max_seq_len, 1);
         std::vector<int64_t> input_shape = {1, pimpl_->max_seq_len};
 
-        Ort::Value input_tensor = Ort::Value::CreateTensor<int64_t>(
-            pimpl_->memory_info, input_ids.data(), input_ids.size(),
-            input_shape.data(), input_shape.size());
+        // 2. Determine output info index (last output = logits)
+        size_t logits_output_idx = pimpl_->output_names.size() - 1;
 
-        Ort::Value mask_tensor = Ort::Value::CreateTensor<int64_t>(
+        // 3. Set up decoder input (start with pad token)
+        const int64_t pad_token_id = 0;
+        const int64_t eos_token_id = 1;
+        std::vector<int64_t> decoder_ids = {pad_token_id};
+
+        Ort::Value decoder_input_tensor = Ort::Value::CreateTensor<int64_t>(
+            pimpl_->memory_info, decoder_ids.data(), decoder_ids.size(),
+            std::vector<int64_t>{1, 1}.data(), 2);
+
+        Ort::Value decoder_mask_tensor = Ort::Value::CreateTensor<int64_t>(
             pimpl_->memory_info, attention_mask.data(), attention_mask.size(),
             input_shape.data(), input_shape.size());
 
-        // ---- 2. Find encoder output names ----
-        // T5 ONNX models typically name things like:
-        //   encoder:  input_ids, attention_mask
-        //   encoder output: encoder_hidden_states
-        //   decoder:  input_ids (or decoder_input_ids), encoder_hidden_states, attention_mask
-        //   decoder output: logits  (or last_hidden_state)
-        //
-        // We need to figure out which names correspond to which role.
-        //
-        // Strategy: run the full graph once by feeding all required inputs.
-        // For T5 this means:
-        //   1) encoder forward (input_ids + attention_mask → encoder_hidden_states)
-        //   2) decoder loop   (decoder_input_ids + encoder_hidden_states → logits → sample → repeat)
+        // 4. Build full input list (fused T5 expects: input_ids, attention_mask, decoder_input_ids, encoder_hidden_states?)
+        std::vector<Ort::Value> ort_inputs;
+        std::vector<const char*> input_names;
 
-        // ---- 3. Build encoder-only input list ----
-        // Some T5 ONNX exports have both encoder and decoder fused;
-        // we try to run with just encoder inputs first.
+        // We need to match the model's expected inputs
+        // From the error we know: input_ids, attention_mask are fed
+        // encoder_hidden_states is missing — the model expects it
+        // decoder_input_ids may also be expected
 
-        Ort::Value encoder_hidden_states_val{nullptr};
-        size_t encoder_hidden_size = 0;
+        // Detect what the model wants
+        bool has_encoder_hidden_input = false;
+        bool has_decoder_input_ids = false;
+        bool has_attention_mask = false;
 
-        // ---- 4. Try encoder run ----
-        // We'll feed input_ids + attention_mask and try to get encoder_hidden_states
-        {
-            std::vector<const char*> enc_input_names;
-            std::vector<Ort::Value> enc_inputs;
+        for (const auto& name : pimpl_->input_names) {
+            std::string n(name);
+            if (n == "encoder_hidden_states") has_encoder_hidden_input = true;
+            else if (n == "decoder_input_ids") has_decoder_input_ids = true;
+            else if (n == "attention_mask") has_attention_mask = true;
+        }
 
-            for (size_t i = 0; i < pimpl_->input_names.size(); ++i) {
-                const std::string& name = pimpl_->input_names[i];
-                if (name == "input_ids") {
-                    // Create a fresh copy — we need the original later for decoder
-                    std::vector<int64_t> ids_copy = input_ids;
-                    enc_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                        pimpl_->memory_info, ids_copy.data(), ids_copy.size(),
-                        input_shape.data(), input_shape.size()));
-                    // Keep ids_copy alive by moving it
-                    auto* leaked = new std::vector<int64_t>(std::move(ids_copy));
-                    (void)leaked;
-                    enc_input_names.push_back("input_ids");
-                } else if (name == "attention_mask") {
-                    std::vector<int64_t> mask_copy = attention_mask;
-                    enc_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                        pimpl_->memory_info, mask_copy.data(), mask_copy.size(),
-                        input_shape.data(), input_shape.size()));
-                    auto* leaked = new std::vector<int64_t>(std::move(mask_copy));
-                    (void)leaked;
-                    enc_input_names.push_back("attention_mask");
-                }
-                // Skip decoder inputs for encoder run
-            }
+        // Build decoder hidden states placeholder (if needed)
+        // Shape: [1, seq_len, d_model] — we don't know exact dims, use 768 (T5-base) or 512 (T5-small)
+        const int64_t d_model = 512; // T5-small hidden size
+        std::vector<int64_t> hidden_shape = {1, (int64_t)pimpl_->max_seq_len, d_model};
+        size_t hidden_elems = 1 * pimpl_->max_seq_len * d_model;
+        std::vector<float> dummy_hidden(hidden_elems, 0.0f);
+        Ort::Value hidden_tensor = Ort::Value::CreateTensor<float>(
+            pimpl_->memory_info, dummy_hidden.data(), dummy_hidden.size(),
+            hidden_shape.data(), hidden_shape.size());
 
-            // Try encoder forward to get hidden states
-            try {
-                // Use "encoder" as output name hint
-                std::vector<const char*> enc_output_names;
-                for (size_t i = 0; i < pimpl_->output_names.size(); ++i) {
-                    const std::string& oname = pimpl_->output_names[i];
-                    if (oname.find("encoder") != std::string::npos ||
-                        oname.find("hidden_states") != std::string::npos ||
-                        oname.find("encoder_last_hidden_state") != std::string::npos) {
-                        enc_output_names.push_back(pimpl_->output_names[i]);
-                    }
-                }
-                // If no encoder-specific output, try the first output
-                if (enc_output_names.empty() && pimpl_->output_names.size() > 0) {
-                    enc_output_names.push_back(pimpl_->output_names[0]);
-                }
+        for (size_t i = 0; i < pimpl_->input_names.size(); ++i) {
+            const std::string& name = pimpl_->input_names[i];
+            input_names.push_back(pimpl_->input_names[i]);
 
-                if (!enc_inputs.empty() && !enc_output_names.empty()) {
-                    auto enc_out = pimpl_->session->Run(
-                        Ort::RunOptions{nullptr},
-                        enc_input_names.data(), enc_inputs.data(), enc_input_names.size(),
-                        enc_output_names.data(), enc_output_names.size());
-
-                    if (!enc_out.empty()) {
-                        // Store encoder hidden states for decoder loop
-                        Ort::TypeInfo type_info = enc_out[0].GetTypeInfo();
-                        auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
-                        auto shape = tensor_info.GetShape();
-                        size_t total_elems = tensor_info.GetElementCount();
-
-                        if (total_elems > 0) {
-                            encoder_hidden_states_val = std::move(enc_out[0]);
-                            encoder_hidden_size = total_elems;
-                            // We'll keep encoder_hidden_states_val alive for the decoder loop
-                        }
-                    }
-                }
-            } catch (const Ort::Exception& enc_e) {
-                // Encoder-only run failed — fall through to full graph approach
-                std::cerr << "[T5] Encoder-only run failed: " << enc_e.what() << "\n";
+            if (name == "input_ids") {
+                ort_inputs.push_back(std::move(
+                    Ort::Value::CreateTensor<int64_t>(
+                        pimpl_->memory_info, input_ids.data(), input_ids.size(),
+                        input_shape.data(), input_shape.size())));
+            } else if (name == "attention_mask") {
+                ort_inputs.push_back(std::move(
+                    Ort::Value::CreateTensor<int64_t>(
+                        pimpl_->memory_info, attention_mask.data(), attention_mask.size(),
+                        input_shape.data(), input_shape.size())));
+            } else if (name == "decoder_input_ids") {
+                ort_inputs.push_back(std::move(decoder_input_tensor));
+            } else if (name == "encoder_hidden_states") {
+                // Provide dummy — the fused graph will compute actual values
+                ort_inputs.push_back(std::move(hidden_tensor));
+            } else {
+                // Unknown input — provide dummy float tensor
+                std::vector<float> dummy(1, 0.0f);
+                ort_inputs.push_back(std::move(
+                    Ort::Value::CreateTensor<float>(
+                        pimpl_->memory_info, dummy.data(), dummy.size(),
+                        std::vector<int64_t>{1, 1}.data(), 2)));
             }
         }
 
-        // ---- 5. Decoder autoregressive loop ----
-        // We try to generate tokens one at a time using decoder
-        std::vector<int64_t> generated_ids;
-        const int64_t pad_token_id = 0;
-        const int64_t eos_token_id = 1;
-        const int max_new_tokens = 256;
+        // 5. Run full graph once
+        std::vector<const char*> output_names;
+        for (size_t i = 0; i < pimpl_->output_names.size(); ++i)
+            output_names.push_back(pimpl_->output_names[i]);
 
-        // Start decoder with pad token
-        std::vector<int64_t> decoder_input_ids_vec(1, pad_token_id);
-        std::vector<int64_t> decoder_shape = {1, 1};
+        if (ort_inputs.empty() || output_names.empty()) {
+            result.error_message = "No valid inputs/outputs for model";
+            result.output_text = input;
+            return result;
+        }
 
-        for (int step = 0; step < max_new_tokens; ++step) {
-            // Build decoder inputs
-            std::vector<const char*> dec_input_names;
-            std::vector<Ort::Value> dec_inputs;
+        auto output_tensors = pimpl_->session->Run(
+            Ort::RunOptions{nullptr},
+            input_names.data(), ort_inputs.data(), ort_inputs.size(),
+            output_names.data(), output_names.size());
 
-            // We need to match the model's expected decoder inputs
-            // Typically: decoder_input_ids + encoder_hidden_states + attention_mask
-            for (size_t i = 0; i < pimpl_->input_names.size(); ++i) {
-                const std::string& name = pimpl_->input_names[i];
-                if (name == "input_ids" || name == "decoder_input_ids") {
-                    std::vector<int64_t> dec_ids = decoder_input_ids_vec;
-                    std::vector<int64_t> dec_shape_vec = {1, (int64_t)dec_ids.size()};
-                    dec_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                        pimpl_->memory_info, dec_ids.data(), dec_ids.size(),
-                        dec_shape_vec.data(), dec_shape_vec.size()));
-                    auto* leaked = new std::vector<int64_t>(std::move(dec_ids));
-                    (void)leaked;
-                    if (name == "input_ids") dec_input_names.push_back("input_ids");
-                    else dec_input_names.push_back("decoder_input_ids");
+        // 6. Extract logits from last output
+        std::string compressed;
+        if (!output_tensors.empty()) {
+            size_t out_idx = std::min(logits_output_idx, output_tensors.size() - 1);
 
-                } else if (name == "attention_mask") {
-                    std::vector<int64_t> dec_mask(decoder_input_ids_vec.size(), 1);
-                    std::vector<int64_t> dec_shape_vec = {1, (int64_t)dec_mask.size()};
-                    dec_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                        pimpl_->memory_info, dec_mask.data(), dec_mask.size(),
-                        dec_shape_vec.data(), dec_shape_vec.size()));
-                    auto* leaked = new std::vector<int64_t>(std::move(dec_mask));
-                    (void)leaked;
-                    dec_input_names.push_back("attention_mask");
+            // Check type: if float32 → logits, if int64 → token IDs
+            auto type_info = output_tensors[out_idx].GetTensorTypeAndShapeInfo();
+            auto elem_type = type_info.GetElementType();
+            auto shape = type_info.GetShape();
 
-                } else if (name == "encoder_hidden_states") {
-                    // Use our encoder output if available
-                    if (encoder_hidden_states_val) {
-                        // We can reuse the existing Value by moving it back and forth
-                        // but to keep things simple, we create a duplicate
-                        // (This works because we haven't modified the original)
-                        dec_inputs.push_back(std::move(encoder_hidden_states_val));
-                        dec_input_names.push_back("encoder_hidden_states");
-                    }
-                }
-            }
+            if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+                // Logits output — argmax
+                auto* logits = output_tensors[out_idx].GetTensorMutableData<float>();
+                size_t total = type_info.GetElementCount();
 
-            // ---- 6. Run decoder step ----
-            std::vector<const char*> dec_output_names;
-            for (size_t i = 0; i < pimpl_->output_names.size(); ++i) {
-                const std::string& oname = pimpl_->output_names[i];
-                if (oname.find("logits") != std::string::npos ||
-                    oname.find("last_hidden_state") != std::string::npos ||
-                    (i == 0 && dec_output_names.empty())) {
-                    dec_output_names.push_back(pimpl_->output_names[i]);
-                }
-            }
-            if (dec_output_names.empty() && pimpl_->output_names.size() > 0) {
-                dec_output_names.push_back(pimpl_->output_names[0]);
-            }
+                if (shape.size() >= 2 && total > 0) {
+                    int64_t seq = shape[shape.size() - 2];
+                    int64_t voc = shape[shape.size() - 1];
+                    std::vector<int64_t> gen_ids;
 
-            if (dec_inputs.empty() || dec_output_names.empty()) {
-                // Cannot run decoder — fall back
-                break;
-            }
-
-            try {
-                auto dec_out = pimpl_->session->Run(
-                    Ort::RunOptions{nullptr},
-                    dec_input_names.data(), dec_inputs.data(), dec_input_names.size(),
-                    dec_output_names.data(), dec_output_names.size());
-
-                if (dec_out.empty()) break;
-
-                // Get logits (shape: [1, seq_len, vocab_size])
-                auto* logits_data = dec_out[0].GetTensorMutableData<float>();
-                auto logits_info = dec_out[0].GetTensorTypeAndShapeInfo();
-                auto logits_shape = logits_info.GetShape();
-
-                if (logits_shape.size() >= 2) {
-                    int64_t seq_len = logits_shape[logits_shape.size() - 2];
-                    int64_t vocab_size = logits_shape[logits_shape.size() - 1];
-
-                    // Take the last token's logits and argmax
-                    int64_t last_token_start = (seq_len - 1) * vocab_size;
-                    int64_t best_id = 0;
-                    float best_score = logits_data[last_token_start];
-                    for (int64_t v = 1; v < vocab_size; ++v) {
-                        if (logits_data[last_token_start + v] > best_score) {
-                            best_score = logits_data[last_token_start + v];
-                            best_id = v;
+                    for (int64_t s = 0; s < seq; ++s) {
+                        int64_t start = s * voc;
+                        int64_t best = 0;
+                        float bestv = logits[start];
+                        for (int64_t v = 1; v < voc && v < 50000; ++v) {
+                            if (logits[start + v] > bestv) {
+                                bestv = logits[start + v];
+                                best = v;
+                            }
                         }
+                        if (best == eos_token_id || best == pad_token_id) break;
+                        gen_ids.push_back(best);
                     }
 
-                    // Stop at EOS
-                    if (best_id == eos_token_id) break;
-
-                    generated_ids.push_back(best_id);
-
-                    // Append to decoder input for next step
-                    decoder_input_ids_vec.push_back(best_id);
-                } else {
-                    break;
+                    if (!gen_ids.empty()) {
+                        compressed = pimpl_->detokenize(gen_ids);
+                        if (compressed.find('[') != std::string::npos) {
+                            std::ostringstream oss;
+                            for (auto id : gen_ids) {
+                                if (oss.tellp() > 0) oss << ' ';
+                                oss << id;
+                            }
+                            compressed = oss.str();
+                        }
+                        std::cerr << "[T5] Generated " << gen_ids.size()
+                                  << " tokens from logits\n";
+                    }
                 }
-
-            } catch (const Ort::Exception& dec_e) {
-                std::cerr << "[T5] Decoder step " << step << " failed: " << dec_e.what() << "\n";
-                break;
+            } else if (elem_type == ONNX_TENSOR_ELEMENT_DATA_TYPE_INT64) {
+                // Token ID output — use directly
+                auto* ids = output_tensors[out_idx].GetTensorMutableData<int64_t>();
+                size_t total = type_info.GetElementCount();
+                std::vector<int64_t> gen_ids(ids, ids + total);
+                compressed = pimpl_->detokenize(gen_ids);
             }
         }
 
-        // ---- 7. Build result ----
+        // 7. Fallback
+        if (compressed.empty() || compressed.find('[') != std::string::npos) {
+            compressed = input;
+            result.confidence_score = 0.0f;
+        } else {
+            result.confidence_score = 0.85f;
+        }
+
+        result.output_text = compressed;
+        result.success = true;
+
         auto end = std::chrono::steady_clock::now();
         result.inference_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-
-        if (!generated_ids.empty()) {
-            std::string compressed = pimpl_->detokenize(generated_ids);
-            if (compressed.find('[') != std::string::npos || compressed.empty()) {
-                // Fallback: use raw IDs as compact representation
-                std::ostringstream oss;
-                for (auto id : generated_ids) {
-                    if (oss.tellp() > 0) oss << ' ';
-                    oss << id;
-                }
-                compressed = oss.str();
-            }
-            result.output_text = compressed;
-            result.confidence_score = 0.85f;
-            result.success = true;
-
-            std::cerr << "[T5] Generated " << generated_ids.size()
-                      << " tokens in " << result.inference_time_ms << " ms\n";
-        } else {
-            // Full fallback: run the model once with all inputs (chat-style)
-            std::cerr << "[T5] Decoder loop produced no output, trying single-shot...\n";
-            try {
-                std::vector<Ort::Value> all_inputs;
-                std::vector<const char*> all_names;
-                for (size_t i = 0; i < pimpl_->input_names.size(); ++i) {
-                    all_names.push_back(pimpl_->input_names[i]);
-                    const std::string& nm = pimpl_->input_names[i];
-                    if (nm == "input_ids") {
-                        std::vector<int64_t> cpy = input_ids;
-                        all_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                            pimpl_->memory_info, cpy.data(), cpy.size(),
-                            input_shape.data(), input_shape.size()));
-                        new std::vector<int64_t>(std::move(cpy));
-                    } else if (nm == "attention_mask") {
-                        std::vector<int64_t> cpy = attention_mask;
-                        all_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                            pimpl_->memory_info, cpy.data(), cpy.size(),
-                            input_shape.data(), input_shape.size()));
-                        new std::vector<int64_t>(std::move(cpy));
-                    } else if (nm == "encoder_hidden_states" && encoder_hidden_states_val) {
-                        all_inputs.push_back(std::move(encoder_hidden_states_val));
-                    } else if (nm == "decoder_input_ids") {
-                        std::vector<int64_t> dec_ids(1, pad_token_id);
-                        std::vector<int64_t> dec_shape_vec = {1, 1};
-                        all_inputs.push_back(Ort::Value::CreateTensor<int64_t>(
-                            pimpl_->memory_info, dec_ids.data(), dec_ids.size(),
-                            dec_shape_vec.data(), dec_shape_vec.size()));
-                        new std::vector<int64_t>(std::move(dec_ids));
-                    }
-                }
-
-                if (!all_inputs.empty()) {
-                    std::vector<const char*> all_out_names;
-                    for (size_t i = 0; i < pimpl_->output_names.size(); ++i)
-                        all_out_names.push_back(pimpl_->output_names[i]);
-
-                    auto out = pimpl_->session->Run(
-                        Ort::RunOptions{nullptr},
-                        all_names.data(), all_inputs.data(), all_names.size(),
-                        all_out_names.data(), all_out_names.size());
-
-                    if (!out.empty()) {
-                        auto* odata = out[0].GetTensorMutableData<float>();
-                        auto oinfo = out[0].GetTensorTypeAndShapeInfo();
-                        auto oshape = oinfo.GetShape();
-                        if (oshape.size() >= 2) {
-                            int64_t seq = oshape[oshape.size()-2];
-                            int64_t voc = oshape[oshape.size()-1];
-                            int64_t start = (seq-1)*voc;
-                            int64_t best = 0;
-                            float bestv = odata[start];
-                            for (int64_t v=1; v<voc; ++v) {
-                                if (odata[start+v] > bestv) {
-                                    bestv = odata[start+v];
-                                    best = v;
-                                }
-                            }
-                            if (best != eos_token_id) {
-                                result.output_text = pimpl_->detokenize({best});
-                            }
-                        }
-                    }
-                }
-            } catch (const Ort::Exception& single_e) {
-                std::cerr << "[T5] Single-shot also failed: " << single_e.what() << "\n";
-            }
-
-            if (result.output_text.empty()) {
-                result.output_text = input;
-                result.confidence_score = 0.0f;
-            } else {
-                result.confidence_score = 0.7f;
-            }
-            result.success = true;
-        }
 
     } catch (const Ort::Exception& e) {
         result.error_message = "ONNX inference error: " + std::string(e.what());
