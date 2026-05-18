@@ -42,7 +42,7 @@ if(EMBED_MODEL)
         message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
         add_custom_command(
             OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c
-            COMMAND xxd -i "${MODEL_ONNX}" > model_embedded.c
+            COMMAND xxd -i -n model_onnx "${MODEL_ONNX}" > model_embedded.c
             DEPENDS "${MODEL_ONNX}"
             COMMENT "Converting ONNX model to C source..."
         )
