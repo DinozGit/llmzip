@@ -84,19 +84,13 @@ int Commands::decompress(const CommandContext& ctx) {
         std::string s = oss.str();
         data.assign(s.begin(), s.end());
     } else {
-        FILE* fp = fopen(ctx.input_file.c_str(), "rb");
-        if (!fp) {
+        std::ifstream file(ctx.input_file, std::ios::binary);
+        if (!file) {
             std::cerr << "Error: cannot open " << ctx.input_file << "\n";
             return 1;
         }
-        fseek(fp, 0, SEEK_END);
-        long sz = ftell(fp);
-        if (sz > 0) {
-            rewind(fp);
-            data.resize(sz);
-            fread(data.data(), 1, sz, fp);
-        }
-        fclose(fp);
+        data = std::vector<uint8_t>(
+            std::istreambuf_iterator<char>(file), {});
     }
 
     if (data.empty()) {
