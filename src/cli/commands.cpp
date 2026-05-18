@@ -77,21 +77,39 @@ int Commands::compress(const CommandContext& ctx) {
 
 int Commands::decompress(const CommandContext& ctx) {
     // 1. Read .lz file
-    std::vector<uint8_t> data;
     if (ctx.use_stdin) {
+        std::vector<uint8_t> data;
         std::ostringstream oss;
         oss << std::cin.rdbuf();
         std::string s = oss.str();
         data.assign(s.begin(), s.end());
-    } else {
-        std::ifstream file(ctx.input_file, std::ios::binary);
-        if (!file) {
-            std::cerr << "Error: cannot open " << ctx.input_file << "\n";
+        if (data.empty()) {
+            std::cerr << "Error: empty input\n";
             return 1;
         }
-        data = std::vector<uint8_t>(
-            std::istreambuf_iterator<char>(file), {});
+        print_progress("Decompressing...", ctx.verbose);
+        Compressor compressor;
+        compressor.initialize();
+        auto result = compressor.decompress(data);
+        if (!result.success) {
+            std::cerr << "Decompression failed: " << result.error_message << "\n";
+            return 1;
+        }
+        if (ctx.use_stdout || ctx.output_file == "-") {
+            std::cout << result.text;
+        } else {
+            write_text(ctx.output_file, result.text);
+        }
+        std::cout << "\n✅ Decompression complete!\n";
+        return 0;
     }
+
+    std::ifstream file(ctx.input_file, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: cannot open " << ctx.input_file << "\n";
+        return 1;
+    }
+    std::vector<uint8_t> data(std::istreambuf_iterator<char>(file), {});
 
     if (data.empty()) {
         std::cerr << "Error: empty input\n";
