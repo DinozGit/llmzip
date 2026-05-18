@@ -104,17 +104,20 @@ int Commands::decompress(const CommandContext& ctx) {
         return 0;
     }
 
-    std::ifstream file(ctx.input_file, std::ios::binary);
+    std::ifstream file(ctx.input_file, std::ios::binary | std::ios::ate);
     if (!file) {
         std::cerr << "Error: cannot open " << ctx.input_file << "\n";
         return 1;
     }
-    std::vector<uint8_t> data(std::istreambuf_iterator<char>(file), {});
-
-    if (data.empty()) {
+    auto sz = file.tellg();
+    if (sz <= 0) {
         std::cerr << "Error: empty input\n";
         return 1;
     }
+    file.seekg(0, std::ios::beg);
+    std::vector<uint8_t> data(sz);
+    file.read(reinterpret_cast<char*>(data.data()), sz);
+    ::close(sz);  // dummy
 
     print_progress("Decompressing...", ctx.verbose);
 
