@@ -80,26 +80,23 @@ add_executable(llmzip
 )
 
 if(EMBED_MODEL)
-    # Embed ONNX model as binary resource
+    # Embed ONNX model as a C source file via xxd (portable, always works)
     set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
     if(EXISTS "${MODEL_ONNX}")
-        message(STATUS "Embedding ONNX model: ${MODEL_ONNX}")
+        message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
         add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o
-            COMMAND ${CMAKE_LINKER} -r -b binary -o model_embedded.o "${MODEL_ONNX}"
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c
+            COMMAND xxd -i "${MODEL_ONNX}" > model_embedded.c
             DEPENDS "${MODEL_ONNX}"
-            COMMENT "Embedding ONNX model into binary..."
+            COMMENT "Converting ONNX model to C source..."
         )
-        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
-
-        # Add the .o directly as a source to llmzip_core so symbols resolve inside the .a
-        target_sources(llmzip_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.o)
-        set_target_properties(llmzip_core PROPERTIES LINKER_LANGUAGE CXX)
+        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
+        list(APPEND CORE_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c)
+        set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/model_embedded.c PROPERTIES GENERATED TRUE)
     else()
         message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
     endif()
-    target_compile_definitions(llmzip PRIVATE EMBED_MODEL)
-    target_compile_definitions(llmzip_core PRIVATE EMBED_MODEL)
+    add_definitions(-DEMBED_MODEL)
 endif()
 
 add_dependencies(llmzip_core model_embedded)
