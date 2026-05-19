@@ -55,6 +55,7 @@ set(CORE_SOURCES
     src/core/compressor.cpp
     src/onnx/inference_engine.cpp
     src/onnx/model_loader.cpp
+    src/onnx/bpe_tokenizer.cpp
     src/cli/commands.cpp
 )
 
@@ -95,7 +96,7 @@ if(EMBED_MODEL)
     endif()
 
     # Encoder model
-    set(MODEL_ENCODER "${CMAKE_SOURCE_DIR}/resources/encoder_model_quantized.onnx")
+    set(MODEL_ENCODER "${CMAKE_SOURCE_DIR}/resources/encoder_model_bart_quant.onnx")
     if(EXISTS "${MODEL_ENCODER}")
         message(STATUS "Embedding encoder ONNX model: ${MODEL_ENCODER}")
         add_custom_command(
@@ -111,7 +112,7 @@ if(EMBED_MODEL)
     endif()
 
     # Decoder model
-    set(MODEL_DECODER "${CMAKE_SOURCE_DIR}/resources/decoder_model_quantized.onnx")
+    set(MODEL_DECODER "${CMAKE_SOURCE_DIR}/resources/decoder_model_bart_quant.onnx")
     if(EXISTS "${MODEL_DECODER}")
         message(STATUS "Embedding decoder ONNX model: ${MODEL_DECODER}")
         add_custom_command(
