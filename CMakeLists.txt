@@ -55,6 +55,14 @@ if(EMBED_MODEL)
 endif()
 
 add_library(llmzip_core STATIC ${CORE_SOURCES})
+
+# Fix trigraph warnings from BART vocab data
+if(MSVC)
+    target_compile_options(llmzip_core PRIVATE /wd4444) # Disable trigraph-like warnings in MSVC
+else()
+    target_compile_options(llmzip_core PRIVATE -Wno-trigraphs)
+endif()
+
 if(TARGET spiece_embedded)
     add_dependencies(llmzip_core spiece_embedded)
 endif()
