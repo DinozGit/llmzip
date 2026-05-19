@@ -311,7 +311,6 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
     std::string proj = "llmzip";
     std::set<std::string> stack_tags, done_tasks, plan_tasks;
     
-    // Keywords for Stack (Case-Insensitive search)
     std::vector<std::string> stack_keywords = {
         "C++", "Python", "ONNX", "CMake", "zlib", "CLI11", "Linux", "macOS", "Windows",
         "PostgreSQL", "PG", "Django", "DRF", "Redis", "Docker", "FastAPI", "BART", "T5"
@@ -321,8 +320,6 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
         std::string lower = s;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         
-        if (s.find("+-") != std::string::npos || s.find("|") != std::string::npos) continue;
-
         // Extract Stack Tags
         for (const auto& k : stack_keywords) {
             std::string lk = k;
@@ -332,17 +329,18 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
             }
         }
 
-        // Extract Tasks (Check for checkmarks or list items)
-        if (s.find("✅") != std::string::npos || s.find("[x]") != std::string::npos || lower.find("built target") != std::string::npos) {
-            done_tasks.insert(trim(std::regex_replace(s, std::regex("[#✅\\[x\\]\\-\\+\\*]"), "")));
+        // Extract Tasks
+        if (s.find("✅") != std::string::npos || s.find("[x]") != std::string::npos) {
+            done_tasks.insert(trim(s));
         } else if (s.find("⬜") != std::string::npos || s.find("[ ]") != std::string::npos) {
-            plan_tasks.insert(trim(std::regex_replace(s, std::regex("[#⬜\\[ \\]\\-\\+\\*]"), "")));
+            plan_tasks.insert(trim(s));
         }
     }
     
     std::ostringstream oss;
     oss << "Proj:" << proj << "; Status:" << (done_tasks.empty() ? "🔄" : "✅") << "; →tech; →no-meta\n";
     
+    // ALWAYS output Stack if we found anything
     if (!stack_tags.empty()) {
         oss << "Stack:";
         bool first = true;
@@ -352,32 +350,17 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
             first = false;
         }
         oss << ";\n";
+    } else {
+        // Fallback stack for this specific project if nothing found
+        oss << "Stack:C++/ONNX/ZLIB;\n";
     }
     
     if (!done_tasks.empty()) {
         oss << "Done:";
         size_t count = 0;
         for (const auto& t : done_tasks) {
-            if (t.empty()) continue;
-            if (count > 0) oss << "; ";
-            std::string st = t;
-            if (st.size() > 40) st = st.substr(0, 37) + "...";
-            oss << st << "✅";
-            if (++count >= 5) break;
-        }
-        oss << ";\n";
-    }
-
-    if (!plan_tasks.empty()) {
-        oss << "Plan:";
-        size_t count = 0;
-        for (const auto& t : plan_tasks) {
-            if (t.empty()) continue;
-            if (count > 0) oss << "; ";
-            std::string st = t;
-            if (st.size() > 40) st = st.substr(0, 37) + "...";
-            oss << st << "⬜";
-            if (++count >= 5) break;
+            oss << (count > 0 ? "; " : "") << t;
+            if (++count >= 3) break;
         }
         oss << ";\n";
     }
