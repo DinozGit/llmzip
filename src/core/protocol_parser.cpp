@@ -330,17 +330,23 @@ std::vector<std::string> ProtocolParser::segment(const std::string& input) {
     if (!current_block.empty()) segments.push_back(current_block);
     return segments;
 }
-
-std::string ProtocolParser::map_dictionary(const std::string& input) {
-    return apply_rules(input, false);
+std::string ProtocolParser::compress_deterministic(const std::string& input) {
+    // 1. Normalize
+    std::string clean_text = normalize(input);
+    
+    // 2. Segment Raw Text
+    auto segments = segment(clean_text);
+    
+    // 3. Assemble (includes mapping)
+    return assemble(segments);
 }
 
 std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
     std::string proj = "llmzip";
     std::set<std::string> stack_tags, done_tasks, plan_tasks;
     
-    // Keywords for Stack
-    std::set<std::string> stack_keywords = {
+    // Keywords for Stack (Case-Insensitive search)
+    std::vector<std::string> stack_keywords = {
         "C++", "Python", "ONNX", "CMake", "zlib", "CLI11", "Linux", "macOS", "Windows",
         "PostgreSQL", "PG", "Django", "DRF", "Redis", "Docker", "FastAPI", "BART", "T5"
     };
@@ -349,7 +355,6 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
         std::string lower = s;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         
-        // Skip noise
         if (s.find("+-") != std::string::npos || s.find("|") != std::string::npos) continue;
 
         // Extract Stack Tags
@@ -361,16 +366,11 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
             }
         }
 
-        // Extract Tasks
-        if (s.find("✅") != std::string::npos || s.find("- [x]") != std::string::npos || lower.find("built target") != std::string::npos) {
-            std::string task = s;
-            // Clean up task string
-            task = std::regex_replace(task, std::regex("- \\[x\\]|✅|#+"), "");
-            done_tasks.insert(trim(task));
-        } else if (s.find("⬜") != std::string::npos || s.find("- [ ]") != std::string::npos) {
-            std::string task = s;
-            task = std::regex_replace(task, std::regex("- \\[ \\]|⬜|#+"), "");
-            plan_tasks.insert(trim(task));
+        // Extract Tasks (Check for checkmarks or list items)
+        if (s.find("✅") != std::string::npos || s.find("[x]") != std::string::npos || lower.find("built target") != std::string::npos) {
+            done_tasks.insert(trim(std::regex_replace(s, std::regex("[#✅\\[x\\]\\-\\+\\*]"), "")));
+        } else if (s.find("⬜") != std::string::npos || s.find("[ ]") != std::string::npos) {
+            plan_tasks.insert(trim(std::regex_replace(s, std::regex("[#⬜\\[ \\]\\-\\+\\*]"), "")));
         }
     }
     
@@ -392,10 +392,11 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
         oss << "Done:";
         size_t count = 0;
         for (const auto& t : done_tasks) {
+            if (t.empty()) continue;
             if (count > 0) oss << "; ";
-            std::string short_t = t;
-            if (short_t.size() > 40) short_t = short_t.substr(0, 37) + "...";
-            oss << short_t << "✅";
+            std::string st = t;
+            if (st.size() > 40) st = st.substr(0, 37) + "...";
+            oss << st << "✅";
             if (++count >= 5) break;
         }
         oss << ";\n";
@@ -405,10 +406,11 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
         oss << "Plan:";
         size_t count = 0;
         for (const auto& t : plan_tasks) {
+            if (t.empty()) continue;
             if (count > 0) oss << "; ";
-            std::string short_t = t;
-            if (short_t.size() > 40) short_t = short_t.substr(0, 37) + "...";
-            oss << short_t << "⬜";
+            std::string st = t;
+            if (st.size() > 40) st = st.substr(0, 37) + "...";
+            oss << st << "⬜";
             if (++count >= 5) break;
         }
         oss << ";\n";
