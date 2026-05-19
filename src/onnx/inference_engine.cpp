@@ -261,10 +261,10 @@ struct InferenceEngine::Impl {
                 ort_inputs.push_back(std::move(t));
             } else if (name.find("use_cache_branch") != std::string::npos) {
                 // bool input
-                std::vector<bool> val = {false};
+                bool val = false;
                 std::vector<int64_t> bshape = {1};
                 auto t = Ort::Value::CreateTensor<bool>(
-                    memory_info, val.data(), val.size(),
+                    memory_info, &val, 1,
                     bshape.data(), (int)bshape.size());
                 ort_inputs.push_back(std::move(t));
             } else {
