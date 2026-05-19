@@ -479,10 +479,14 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
     try {
         auto start = std::chrono::steady_clock::now();
 
+        // 0. Prepand compression prompt prefix (FLAN-T5 instruction format)
+        // T5 understands "summarize:", "translate:" — "compress:" triggers protocol output
+        std::string prompted = "compress: " + input;
+
         // 1. Tokenize
-        std::vector<int64_t> input_ids = pimpl_->tokenize(input);
-        std::cerr << "[T5] Encoder input: " << input.size() << " chars -> "
-                  << input_ids.size() << " tokens\n";
+        std::vector<int64_t> input_ids = pimpl_->tokenize(prompted);
+        std::cerr << "[T5] Encoder input: " << prompted.size() << " chars -> "
+                  << input_ids.size() << " tokens (prompt \"compress:\" + " << input.size() << " chars)\n";
 
         // 2. Run encoder → get hidden states
         std::vector<float> encoder_hidden;
@@ -496,7 +500,8 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
         // Pre-compute and cache encoder mask
         pimpl_->cached_enc_mask = pimpl_->build_enc_mask(input_ids);
 
-        // 3. Autoregressive decoder loop
+        // 3. Autoregressive decoder loop — produce protocol output
+        // FLAN-T5 should output in "Key:Value; →modifier" format, inherited from prompt
         std::vector<int64_t> decoder_ids;
         decoder_ids.reserve(pimpl_->max_new_tokens);
         decoder_ids.push_back(pimpl_->pad_token_id);
