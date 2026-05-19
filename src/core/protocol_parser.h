@@ -30,6 +30,9 @@ public:
     // Применение правил к тексту
     std::string apply_rules(const std::string& input, bool reverse = false);
     
+    // Детерминированное сжатие по шаблону (без LLM)
+    std::string compress_deterministic(const std::string& input);
+    
     // Извлечение семантических маркеров
     std::vector<std::string> extract_markers(const std::string& input);
     
@@ -46,6 +49,11 @@ private:
     
     // Внутренние методы
     void sort_rules_by_priority();
+    std::string normalize(const std::string& input);
+    std::vector<std::string> segment(const std::string& input);
+    std::string map_dictionary(const std::string& input);
+    std::string assemble(const std::vector<std::string>& segments);
+    
     std::string normalize_whitespace(const std::string& input);
     std::string compress_common_phrases(const std::string& input);
     std::string decompress_common_phrases(const std::string& input);

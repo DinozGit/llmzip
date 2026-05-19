@@ -204,3 +204,31 @@ Users: 100K; Budget: $500/mo
 →team; Role: FSDev/PyDev
 Out: →tech; →steps
 ```
+
+## 🔧 Алгоритмический протокол сжатия (Deterministic Parser)
+
+Данный раздел расширяет протокол для реализации без-LLM парсера на основе правил и шаблонов.
+
+### 📐 1. Пайплайн сжатия
+`RawText` → `Normalize` (удаление MD, ↓whitespace) → `Segment` (разбивка по блокам) → `Map` (словарь) → `Assemble` (сборка по шаблону)
+
+### 🔍 2. Детерминированный словарь (Priority: Longest Match)
+| Исходная фраза | Маркер |
+|----------------|--------|
+| postgresql | PG |
+| microservices | µserv |
+| large language model | LLM |
+| retrieval-augmented generation | RAG |
+| requirements | Req: |
+| tech stack | Stack: |
+| architecture | Arch: |
+| performance | →perf |
+| in progress / wip | 🔄 |
+| ready / done | ✅ |
+
+### 🧩 3. Шаблон сборки (Assembly Template)
+Строгий порядок блоков:
+1. `Proj:[Name]; Ver:[N]; Status:[✅/⬜️/🔄]; →tech`
+2. `Stack:[Tech/...]; Arch:[Pattern]; Mode:[lossy/lossless/hybrid]`
+3. `Done:[Tasks...]; Plan:[Tasks...]`
+4. `Meta: fp:auto; ver:2.0; →roundtrip:✓✓`

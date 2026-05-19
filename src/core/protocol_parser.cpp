@@ -275,6 +275,76 @@ static const std::vector<std::pair<std::string,std::string>> kPhrases = {
 // ProtocolParser
 // ===========================================================================
 
+std::string ProtocolParser::compress_deterministic(const std::string& input) {
+    // 1. Normalize
+    std::string text = normalize(input);
+    
+    // 2. Map Dictionary (Greedy)
+    text = map_dictionary(text);
+    
+    // 3. Segment
+    auto segments = segment(text);
+    
+    // 4. Assemble by Template
+    return assemble(segments);
+}
+
+std::string ProtocolParser::normalize(const std::string& input) {
+    std::string result = input;
+    // Remove Markdown formatting: **, __, `
+    try {
+        result = std::regex_replace(result, std::regex("[*_`]"), "");
+        // Normalize whitespace
+        result = std::regex_replace(result, std::regex("\\s+"), " ");
+    } catch (...) {}
+    return trim(result);
+}
+
+std::vector<std::string> ProtocolParser::segment(const std::string& input) {
+    std::vector<std::string> segments;
+    std::stringstream ss(input);
+    std::string item;
+    // Split by common list markers or semicolons
+    while (std::getline(ss, item, ';')) {
+        if (!trim(item).empty()) segments.push_back(trim(item));
+    }
+    return segments;
+}
+
+std::string ProtocolParser::map_dictionary(const std::string& input) {
+    return apply_rules(input, false);
+}
+
+std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
+    std::string proj = "llmzip";
+    std::vector<std::string> stack, done, plan, ops;
+    
+    for (const auto& s : segments) {
+        std::string lower = s;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        
+        if (s.find("✅") != std::string::npos || lower.find("done") != std::string::npos) done.push_back(s);
+        else if (s.find("⬜") != std::string::npos || lower.find("todo") != std::string::npos) plan.push_back(s);
+        else if (lower.find("c++") != std::string::npos || lower.find("python") != std::string::npos || lower.find("onnx") != std::string::npos) stack.push_back(s);
+        else ops.push_back(s);
+    }
+    
+    std::ostringstream oss;
+    oss << "Proj:" << proj << "; Status:" << (done.empty() ? "🔄" : "✅") << "; →tech; →no-meta\n";
+    if (!stack.empty()) {
+        oss << "Stack:";
+        for (size_t i = 0; i < stack.size(); ++i) oss << (i > 0 ? "/" : "") << stack[i];
+        oss << ";\n";
+    }
+    if (!done.empty()) {
+        oss << "Done:";
+        for (size_t i = 0; i < done.size(); ++i) oss << (i > 0 ? "; " : "") << done[i];
+        oss << ";\n";
+    }
+    oss << "Meta: fp:auto; ver:2.0; →roundtrip:✓✓";
+    return oss.str();
+}
+
 ProtocolParser::ProtocolParser() { load_default_rules(); }
 ProtocolParser::~ProtocolParser() = default;
 

@@ -197,19 +197,17 @@ CompressionResult Compressor::compress_lossy(const std::string& input) {
     CompressionResult result;
     result.original_size = input.size();
 
-    // 1. Protocol compression (core_rules.md)
-    std::string protocol_text = pimpl_->parser.apply_rules(input, false);
+    // 1. Deterministic Protocol Compression (New Pipeline)
+    std::string protocol_text = pimpl_->parser.compress_deterministic(input);
 
-    // 2. If ONNX available, enhance with semantic compression
+    // 2. If ONNX available, enhance with semantic compression (optional polish)
     if (pimpl_->onnx_available && pimpl_->engine) {
         auto onnx_result = pimpl_->engine->compress_text(protocol_text);
-        if (onnx_result.success && !onnx_result.output_text.empty()) {
-            std::cerr << "[lossy] ONNX input: " << protocol_text.size() << " B"
-                      << " -> output: " << onnx_result.output_text.size() << " B"
-                      << " (" << onnx_result.inference_time_ms << " ms)\n";
+        if (onnx_result.success && !onnx_result.output_text.empty() && 
+            onnx_result.output_text.size() < protocol_text.size()) {
+            std::cerr << "[lossy] LLM polish: " << protocol_text.size() << " B"
+                      << " -> " << onnx_result.output_text.size() << " B\n";
             protocol_text = onnx_result.output_text;
-        } else {
-            std::cerr << "[lossy] ONNX fallback, error: " << onnx_result.error_message << "\n";
         }
     }
 
