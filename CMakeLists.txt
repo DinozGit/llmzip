@@ -12,6 +12,23 @@ option(EMBED_MODEL "Embed ONNX model into binary" OFF)
 
 # Поиск зависимостей
 find_package(onnxruntime REQUIRED)
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(sentencepiece REQUIRED IMPORTED_TARGET sentencepiece)
+else()
+    # Fallback: find library directly
+    find_path(sentencepiece_INCLUDE_DIRS sentencepiece_processor.h
+        PATHS /usr/include /usr/local/include)
+    find_library(sentencepiece_LIBRARIES sentencepiece
+        PATHS /usr/lib/x86_64-linux-gnu /usr/local/lib)
+    if(NOT sentencepiece_LIBRARIES)
+        message(FATAL_ERROR "sentencepiece not found. Install libsentencepiece-dev")
+    endif()
+    add_library(sentencepiece::sentencepiece UNKNOWN IMPORTED)
+    set_target_properties(sentencepiece::sentencepiece PROPERTIES
+        IMPORTED_LOCATION "${sentencepiece_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${sentencepiece_INCLUDE_DIRS}")
+endif()
 find_package(CLI11 CONFIG QUIET)
 
 # Если CLI11 не найден системно, используем submodule
@@ -36,6 +53,24 @@ set(CORE_SOURCES
 )
 
 if(EMBED_MODEL)
+    # Embed SentencePiece model via xxd
+    set(MODEL_SPIECE "${CMAKE_SOURCE_DIR}/resources/spiece.model")
+    if(EXISTS "${MODEL_SPIECE}")
+        message(STATUS "Embedding SentencePiece model via xxd: ${MODEL_SPIECE}")
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp
+            COMMAND xxd -i -n spiece_model "${MODEL_SPIECE}" > ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp
+            DEPENDS "${MODEL_SPIECE}"
+            COMMENT "Converting SentencePiece model to C source..."
+        )
+        add_custom_target(spiece_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp)
+        set(SPIECE_EMBEDDED_C "${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp")
+        list(APPEND CORE_SOURCES "${SPIECE_EMBEDDED_C}")
+        set_source_files_properties("${SPIECE_EMBEDDED_C}" PROPERTIES GENERATED TRUE)
+    else()
+        message(WARNING "spiece.model not found at ${MODEL_SPIECE}")
+    endif()
+
     # Embed ONNX model as a C source file via xxd (portable, always works)
     set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
     if(EXISTS "${MODEL_ONNX}")
@@ -61,17 +96,20 @@ add_library(llmzip_core STATIC
     ${CORE_SOURCES}
 )
 
-add_dependencies(llmzip_core model_embedded)
+add_dependencies(llmzip_core model_embedded spiece_embedded)
 
 target_include_directories(llmzip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${onnxruntime_INCLUDE_DIRS}
+    ${sentencepiece_INCLUDE_DIRS}
 )
 
 target_link_libraries(llmzip_core PUBLIC
     onnxruntime
+    sentencepiece::sentencepiece
     CLI11::CLI11
     ZLIB::ZLIB
+    pthread
 )
 
 # Платформенные настройки
@@ -102,7 +140,7 @@ add_executable(llmzip
     src/cli/main.cpp
 )
 
-add_dependencies(llmzip model_embedded)
+add_dependencies(llmzip model_embedded spiece_embedded)
 
 target_link_libraries(llmzip PRIVATE llmzip_core)
 
