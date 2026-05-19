@@ -481,10 +481,17 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
 
         // 0. Prepand compression prompt prefix (FLAN-T5 instruction format)
         // T5 understands "summarize:", "translate:" — "compress:" triggers protocol output
+        // Reserve max_new_tokens for decoder, leave rest for encoder
         std::string prompted = "compress: " + input;
 
-        // 1. Tokenize
+        // 1. Tokenize — but truncate to leave room for decoder output
         std::vector<int64_t> input_ids = pimpl_->tokenize(prompted);
+        int64_t max_enc_tokens = pimpl_->max_seq_len - pimpl_->max_new_tokens - 5; // 512-150-5 = 357
+        if ((int64_t)input_ids.size() > max_enc_tokens) {
+            input_ids.resize(max_enc_tokens);
+            std::cerr << "[T5] Truncated encoder to " << max_enc_tokens << " tokens (leaving "
+                      << pimpl_->max_new_tokens << " for decoder)\n";
+        }
         std::cerr << "[T5] Encoder input: " << prompted.size() << " chars -> "
                   << input_ids.size() << " tokens (prompt \"compress:\" + " << input.size() << " chars)\n";
 
