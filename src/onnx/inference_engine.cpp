@@ -170,7 +170,11 @@ bool InferenceEngine::initialize(const std::string& path) { return initialize_em
 InferenceResult InferenceEngine::compress_text(const std::string& input) {
     InferenceResult res;
     if (!pimpl_->initialized_) return res;
-    auto ids = pimpl_->tokenize(input);
+
+    // BART-specific prompt to guide towards protocol format
+    std::string prompted = "extract technical protocol: " + input;
+    auto ids = pimpl_->tokenize(prompted);
+    
     std::vector<float> hidden;
     if (!pimpl_->run_encoder(ids, hidden)) return res;
     
