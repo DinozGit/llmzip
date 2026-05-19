@@ -16,24 +16,23 @@ find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(SPIECE REQUIRED sentencepiece)
     if(SPIECE_FOUND)
-        add_library(SPIECE::SPIECE UNKNOWN IMPORTED)
+        add_library(SPIECE::SPIECE INTERFACE IMPORTED)
         set_target_properties(SPIECE::SPIECE PROPERTIES
-            IMPORTED_LOCATION "${SPIECE_LIBRARIES}"
             INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}"
-            INTERFACE_LINK_LIBRARIES "${SPIECE_LIBRARIES}")
+            INTERFACE_LINK_LIBRARIES "${SPIECE_LDFLAGS_OTHER};${SPIECE_LIBRARIES}")
     endif()
 else()
     # Fallback: find library directly
     find_path(SPIECE_INCLUDE_DIRS sentencepiece_processor.h
         PATHS /usr/include /usr/local/include)
-    find_library(SPIECE_LIBRARIES sentencepiece
+    find_library(SPIECE_LIB sentencepiece
         PATHS /usr/lib/x86_64-linux-gnu /usr/local/lib)
-    if(NOT SPIECE_LIBRARIES)
+    if(NOT SPIECE_LIB)
         message(FATAL_ERROR "sentencepiece not found. Install libsentencepiece-dev")
     endif()
     add_library(SPIECE::SPIECE UNKNOWN IMPORTED)
     set_target_properties(SPIECE::SPIECE PROPERTIES
-        IMPORTED_LOCATION "${SPIECE_LIBRARIES}"
+        IMPORTED_LOCATION "${SPIECE_LIB}"
         INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}")
 endif()
 find_package(CLI11 CONFIG QUIET)
