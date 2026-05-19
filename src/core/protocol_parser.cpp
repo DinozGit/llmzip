@@ -276,20 +276,6 @@ static const std::vector<std::pair<std::string,std::string>> kPhrases = {
 // ProtocolParser
 // ===========================================================================
 
-std::string ProtocolParser::compress_deterministic(const std::string& input) {
-    // 1. Normalize
-    std::string text = normalize(input);
-    
-    // 2. Map Dictionary (Greedy)
-    text = map_dictionary(text);
-    
-    // 3. Segment
-    auto segments = segment(text);
-    
-    // 4. Assemble by Template
-    return assemble(segments);
-}
-
 std::string ProtocolParser::normalize(const std::string& input) {
     std::string result = input;
     // Remove Markdown formatting: **, __, `
