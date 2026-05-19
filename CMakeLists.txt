@@ -14,20 +14,27 @@ option(EMBED_MODEL "Embed ONNX model into binary" OFF)
 find_package(onnxruntime REQUIRED)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-    pkg_check_modules(sentencepiece REQUIRED IMPORTED_TARGET sentencepiece)
+    pkg_check_modules(SPIECE REQUIRED sentencepiece)
+    if(SPIECE_FOUND)
+        add_library(SPIECE::SPIECE UNKNOWN IMPORTED)
+        set_target_properties(SPIECE::SPIECE PROPERTIES
+            IMPORTED_LOCATION "${SPIECE_LIBRARIES}"
+            INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${SPIECE_LIBRARIES}")
+    endif()
 else()
     # Fallback: find library directly
-    find_path(sentencepiece_INCLUDE_DIRS sentencepiece_processor.h
+    find_path(SPIECE_INCLUDE_DIRS sentencepiece_processor.h
         PATHS /usr/include /usr/local/include)
-    find_library(sentencepiece_LIBRARIES sentencepiece
+    find_library(SPIECE_LIBRARIES sentencepiece
         PATHS /usr/lib/x86_64-linux-gnu /usr/local/lib)
-    if(NOT sentencepiece_LIBRARIES)
+    if(NOT SPIECE_LIBRARIES)
         message(FATAL_ERROR "sentencepiece not found. Install libsentencepiece-dev")
     endif()
-    add_library(sentencepiece::sentencepiece UNKNOWN IMPORTED)
-    set_target_properties(sentencepiece::sentencepiece PROPERTIES
-        IMPORTED_LOCATION "${sentencepiece_LIBRARIES}"
-        INTERFACE_INCLUDE_DIRECTORIES "${sentencepiece_INCLUDE_DIRS}")
+    add_library(SPIECE::SPIECE UNKNOWN IMPORTED)
+    set_target_properties(SPIECE::SPIECE PROPERTIES
+        IMPORTED_LOCATION "${SPIECE_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}")
 endif()
 find_package(CLI11 CONFIG QUIET)
 
@@ -101,12 +108,12 @@ add_dependencies(llmzip_core model_embedded spiece_embedded)
 target_include_directories(llmzip_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${onnxruntime_INCLUDE_DIRS}
-    ${sentencepiece_INCLUDE_DIRS}
+    ${SPIECE_INCLUDE_DIRS}
 )
 
 target_link_libraries(llmzip_core PUBLIC
     onnxruntime
-    sentencepiece::sentencepiece
+    SPIECE::SPIECE
     CLI11::CLI11
     ZLIB::ZLIB
     pthread
