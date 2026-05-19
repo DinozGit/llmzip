@@ -8,7 +8,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(EMBED_MODEL "Embed lightweight resources (tokenizer)" ON)
 
 # Dependencies
-find_package(ZLIB REQUIRED)
+find_package(ZLIB QUIET)
+if(NOT ZLIB_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(
+        zlib
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG v1.3.1
+    )
+    FetchContent_MakeAvailable(zlib)
+    # Map zlib to ZLIB::ZLIB for consistency
+    if(NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+        set(ZLIB_INCLUDE_DIRS ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+    endif()
+endif()
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
     pkg_check_modules(SPIECE sentencepiece)
