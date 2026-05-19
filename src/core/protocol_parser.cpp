@@ -291,29 +291,9 @@ std::vector<std::string> ProtocolParser::segment(const std::string& input) {
     std::vector<std::string> segments;
     std::stringstream ss(input);
     std::string line;
-    std::string current_block;
-    
     while (std::getline(ss, line)) {
-        std::string t_line = trim(line);
-        if (t_line.empty()) {
-            if (!current_block.empty()) {
-                segments.push_back(current_block);
-                current_block.clear();
-            }
-            continue;
-        }
-        
-        // Split by Markdown headers
-        if (t_line[0] == '#') {
-            if (!current_block.empty()) segments.push_back(current_block);
-            segments.push_back(t_line);
-            current_block.clear();
-        } else {
-            if (!current_block.empty()) current_block += " ";
-            current_block += t_line;
-        }
+        if (!trim(line).empty()) segments.push_back(trim(line));
     }
-    if (!current_block.empty()) segments.push_back(current_block);
     return segments;
 }
 std::string ProtocolParser::compress_deterministic(const std::string& input) {
