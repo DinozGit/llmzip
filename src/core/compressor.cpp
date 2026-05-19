@@ -201,6 +201,7 @@ CompressionResult Compressor::compress_lossy(const std::string& input) {
     std::string protocol_text = pimpl_->parser.compress_deterministic(input);
 
     // 2. If ONNX available, enhance with semantic compression (optional polish)
+    /*
     if (pimpl_->onnx_available && pimpl_->engine) {
         auto onnx_result = pimpl_->engine->compress_text(protocol_text);
         // Safety: only use LLM output if it's valid and not much larger than skeleton
@@ -211,6 +212,7 @@ CompressionResult Compressor::compress_lossy(const std::string& input) {
             protocol_text = onnx_result.output_text;
         }
     }
+    */
 
     result.data.assign(protocol_text.begin(), protocol_text.end());
     result.compressed_size = result.data.size();
