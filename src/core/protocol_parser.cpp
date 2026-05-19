@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <regex>
+#include <set>
 
 namespace llmzip {
 namespace {
