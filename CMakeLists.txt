@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-project(llmzip VERSION 1.0.0 LANGUAGES CXX)
+
+# Fix for newer CMake versions (4.x+) that removed support for very old versions
+if(POLICY CMP0129)
+  cmake_policy(SET CMP0129 NEW)
+endif()
+set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+
+project(llmzip VERSION 1.0.0 LANGUAGES CXX C) # Added C for zlib
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,7 +27,7 @@ if(NOT ZLIB_FOUND)
     # Map zlib to ZLIB::ZLIB for consistency
     if(NOT TARGET ZLIB::ZLIB)
         add_library(ZLIB::ZLIB ALIAS zlibstatic)
-        set(ZLIB_INCLUDE_DIRS ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
+        target_include_directories(zlibstatic INTERFACE ${zlib_SOURCE_DIR} ${zlib_BINARY_DIR})
     endif()
 endif()
 find_package(PkgConfig QUIET)
@@ -82,7 +89,11 @@ if(TARGET spiece_embedded)
 endif()
 
 target_include_directories(llmzip_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(llmzip_core PUBLIC ZLIB::ZLIB CLI11::CLI11 pthread)
+target_link_libraries(llmzip_core PUBLIC ZLIB::ZLIB CLI11::CLI11)
+
+if(NOT WIN32)
+    target_link_libraries(llmzip_core PUBLIC pthread)
+endif()
 if(TARGET SPIECE::SPIECE)
     target_link_libraries(llmzip_core PUBLIC SPIECE::SPIECE)
 endif()
