@@ -337,64 +337,79 @@ std::string ProtocolParser::map_dictionary(const std::string& input) {
 
 std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
     std::string proj = "llmzip";
-    std::vector<std::string> stack, done, plan, ops;
+    std::set<std::string> stack_tags, done_tasks, plan_tasks;
     
+    // Keywords for Stack
+    std::set<std::string> stack_keywords = {
+        "C++", "Python", "ONNX", "CMake", "zlib", "CLI11", "Linux", "macOS", "Windows",
+        "PostgreSQL", "PG", "Django", "DRF", "Redis", "Docker", "FastAPI", "BART", "T5"
+    };
+
     for (const auto& s : segments) {
         std::string lower = s;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         
         // Skip noise
         if (s.find("+-") != std::string::npos || s.find("|") != std::string::npos) continue;
-        if (lower.find("см. раздел") != std::string::npos) continue;
 
-        if (s[0] == '#') {
-            if (proj == "llmzip" && lower.find("llmzip") != std::string::npos) {
-                // Keep default or extract name
+        // Extract Stack Tags
+        for (const auto& k : stack_keywords) {
+            std::string lk = k;
+            std::transform(lk.begin(), lk.end(), lk.begin(), ::tolower);
+            if (lower.find(lk) != std::string::npos) {
+                stack_tags.insert(k);
             }
-            continue;
         }
 
-        if (s.find("✅") != std::string::npos || lower.find("done") != std::string::npos || s.find("- [x]") != std::string::npos) {
-            done.push_back(s);
-        } else if (s.find("⬜") != std::string::npos || lower.find("todo") != std::string::npos || s.find("- [ ]") != std::string::npos) {
-            plan.push_back(s);
-        } else if (lower.find("c++") != std::string::npos || lower.find("python") != std::string::npos || 
-                   lower.find("onnx") != std::string::npos || lower.find("cmake") != std::string::npos ||
-                   lower.find("zlib") != std::string::npos) {
-            stack.push_back(s);
-        } else if (lower.size() < 100) { // Only keep short meaningful lines in ops
-            ops.push_back(s);
+        // Extract Tasks
+        if (s.find("✅") != std::string::npos || s.find("- [x]") != std::string::npos || lower.find("built target") != std::string::npos) {
+            std::string task = s;
+            // Clean up task string
+            task = std::regex_replace(task, std::regex("- \\[x\\]|✅|#+"), "");
+            done_tasks.insert(trim(task));
+        } else if (s.find("⬜") != std::string::npos || s.find("- [ ]") != std::string::npos) {
+            std::string task = s;
+            task = std::regex_replace(task, std::regex("- \\[ \\]|⬜|#+"), "");
+            plan_tasks.insert(trim(task));
         }
     }
     
     std::ostringstream oss;
-    oss << "Proj:" << proj << "; Status:" << (done.empty() ? "🔄" : "✅") << "; →tech; →no-meta\n";
+    oss << "Proj:" << proj << "; Status:" << (done_tasks.empty() ? "🔄" : "✅") << "; →tech; →no-meta\n";
     
-    if (!stack.empty()) {
+    if (!stack_tags.empty()) {
         oss << "Stack:";
-        // Extract only keywords from stack blocks
-        std::set<std::string> keywords = {"C++", "Python", "ONNX", "CMake", "zlib", "CLI11", "Linux", "macOS", "Windows"};
         bool first = true;
-        for (const auto& k : keywords) {
-            bool found = false;
-            for (const auto& st : stack) {
-                if (st.find(k) != std::string::npos) { found = true; break; }
-            }
-            if (found) {
-                if (!first) oss << "/";
-                oss << k;
-                first = false;
-            }
+        for (const auto& t : stack_tags) {
+            if (!first) oss << "/";
+            oss << t;
+            first = false;
         }
         oss << ";\n";
     }
     
-    if (!done.empty()) {
+    if (!done_tasks.empty()) {
         oss << "Done:";
-        for (size_t i = 0; i < std::min(done.size(), (size_t)5); ++i) {
-            std::string d = done[i];
-            if (d.size() > 50) d = d.substr(0, 47) + "...";
-            oss << (i > 0 ? "; " : "") << d;
+        size_t count = 0;
+        for (const auto& t : done_tasks) {
+            if (count > 0) oss << "; ";
+            std::string short_t = t;
+            if (short_t.size() > 40) short_t = short_t.substr(0, 37) + "...";
+            oss << short_t << "✅";
+            if (++count >= 5) break;
+        }
+        oss << ";\n";
+    }
+
+    if (!plan_tasks.empty()) {
+        oss << "Plan:";
+        size_t count = 0;
+        for (const auto& t : plan_tasks) {
+            if (count > 0) oss << "; ";
+            std::string short_t = t;
+            if (short_t.size() > 40) short_t = short_t.substr(0, 37) + "...";
+            oss << short_t << "⬜";
+            if (++count >= 5) break;
         }
         oss << ";\n";
     }
