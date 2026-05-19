@@ -173,17 +173,13 @@ struct InferenceEngine::Impl {
     }
 
     // ----------------------------------------------------------------
-    // Cross-attention mask builder for decoder
+    // Build encoder attention mask (2D) for decoder input
     // ----------------------------------------------------------------
-    std::vector<int64_t> build_cross_mask(const std::vector<int64_t>& enc_input_ids) {
-        // Cross-attention mask shape: [1, 1, max_seq_len, max_seq_len]
-        std::vector<int64_t> mask(max_seq_len * max_seq_len, 0);
-        for (size_t i = 0; i < enc_input_ids.size(); ++i) {
-            for (size_t j = 0; j < enc_input_ids.size(); ++j) {
-                mask[i * max_seq_len + j] = 1;
-            }
-        }
-        return mask; // [1, 1, max_seq_len, max_seq_len]
+    std::vector<int64_t> build_enc_mask(const std::vector<int64_t>& enc_input_ids) {
+        std::vector<int64_t> mask(max_seq_len, 0);
+        for (size_t i = 0; i < enc_input_ids.size(); ++i)
+            mask[i] = 1;
+        return mask;
     }
 
     // ----------------------------------------------------------------
@@ -238,12 +234,11 @@ struct InferenceEngine::Impl {
                     memory_info, dec_mask.data(), dec_mask.size(),
                     shape_1d.data(), (int)shape_1d.size());
                 ort_inputs.push_back(std::move(t));
-            } else if (name == "cross_attention_mask" || name == "encoder_attention_mask") {
-                // Cross-attention mask
-                auto cm = build_cross_mask(enc_input_ids);
+            } else if (name == "encoder_attention_mask") {
+                // Encoder attention mask: 2D [1, max_seq_len]
                 auto t = Ort::Value::CreateTensor<int64_t>(
-                    memory_info, cm.data(), cm.size(),
-                    mask_shape.data(), (int)mask_shape.size());
+                    memory_info, dec_mask.data(), dec_mask.size(),
+                    shape_1d.data(), (int)shape_1d.size());
                 ort_inputs.push_back(std::move(t));
             } else if (name == "causal_mask" || name.find("causal") != std::string::npos) {
                 auto t = Ort::Value::CreateTensor<int64_t>(
