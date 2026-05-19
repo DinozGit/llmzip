@@ -14,6 +14,10 @@
 extern "C" {
     extern const unsigned char spiece_model[];
     extern const unsigned int spiece_model_len;
+    extern const unsigned char encoder_onnx[];
+    extern const unsigned int encoder_onnx_len;
+    extern const unsigned char decoder_onnx[];
+    extern const unsigned int decoder_onnx_len;
 }
 #endif
 
@@ -42,12 +46,9 @@ struct InferenceEngine::Impl {
     int64_t max_seq_len = 512;
     int64_t max_new_tokens = 150;
     int64_t vocab_size = 32128;
-    int64_t d_model = 512;
 
     int64_t pad_token_id = 0;
     int64_t eos_token_id = 1;
-
-    std::vector<int64_t> cached_enc_mask;
 
     ~Impl() {
         dec_session.reset();
@@ -111,20 +112,22 @@ struct InferenceEngine::Impl {
         }
         std::vector<int64_t> shape = {1, max_seq_len};
         std::vector<int64_t> h_shape = {1, max_seq_len, 512};
-        std::vector<float> dummy_h(max_seq_len * 512, 0.0f);
+        
         std::vector<Ort::Value> inputs;
-        for (const auto& name : dec_input_names) {
-            if (std::string(name) == "input_ids") inputs.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, full_ids.data(), full_ids.size(), shape.data(), 2));
-            else if (std::string(name) == "encoder_attention_mask") inputs.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask.data(), attention_mask.size(), shape.data(), 2));
-            else if (std::string(name) == "encoder_hidden_states") inputs.push_back(Ort::Value::CreateTensor<float>(memory_info, dummy_h.data(), dummy_h.size(), h_shape.data(), 3));
-            else {
+        for (size_t i = 0; i < dec_input_names.size(); ++i) {
+            std::string name = dec_input_names[i];
+            if (name == "input_ids") inputs.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, full_ids.data(), full_ids.size(), shape.data(), 2));
+            else if (name == "encoder_attention_mask") inputs.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, attention_mask.data(), attention_mask.size(), shape.data(), 2));
+            else if (name == "encoder_hidden_states") {
+                inputs.push_back(Ort::Value::CreateTensor<float>(memory_info, const_cast<float*>(encoder_hidden.data()), encoder_hidden.size(), h_shape.data(), 3));
+            } else {
                 std::vector<int64_t> d(1, 0);
                 inputs.push_back(Ort::Value::CreateTensor<int64_t>(memory_info, d.data(), 1, std::vector<int64_t>{1, 1}.data(), 2));
             }
         }
         auto outputs = dec_session->Run(Ort::RunOptions{nullptr}, dec_input_names.data(), inputs.data(), inputs.size(), dec_output_names.data(), dec_output_names.size());
         if (outputs.empty()) return false;
-        auto* data = outputs.back().GetTensorMutableData<float>();
+        auto* data = outputs[0].GetTensorMutableData<float>();
         int64_t last_pos = std::min<int64_t>(sep + decoder_ids.size(), max_seq_len - 1);
         logits_out.assign(data + last_pos * vocab_size, data + (last_pos + 1) * vocab_size);
         return true;
@@ -156,14 +159,10 @@ bool InferenceEngine::initialize_embedded() {
         pimpl_->env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "llmzip");
         pimpl_->session_options = Ort::SessionOptions();
         pimpl_->session_options.SetIntraOpNumThreads(1);
-        std::string enc_path = "resources/encoder_model_quantized.onnx";
-        std::string dec_path = "resources/decoder_model_quantized.onnx";
-        if (!std::filesystem::exists(enc_path)) enc_path = "../" + enc_path;
-        if (!std::filesystem::exists(dec_path)) dec_path = "../" + dec_path;
-        pimpl_->enc_session = std::make_unique<Ort::Session>(pimpl_->env, enc_path.c_str(), pimpl_->session_options);
+        pimpl_->enc_session = std::make_unique<Ort::Session>(pimpl_->env, encoder_onnx, encoder_onnx_len, pimpl_->session_options);
         pimpl_->query_info(pimpl_->enc_session.get(), pimpl_->enc_input_names, pimpl_->enc_input_names_ptrs);
         pimpl_->query_out_info(pimpl_->enc_session.get(), pimpl_->enc_output_names, pimpl_->enc_output_names_ptrs);
-        pimpl_->dec_session = std::make_unique<Ort::Session>(pimpl_->env, dec_path.c_str(), pimpl_->session_options);
+        pimpl_->dec_session = std::make_unique<Ort::Session>(pimpl_->env, decoder_onnx, decoder_onnx_len, pimpl_->session_options);
         pimpl_->query_info(pimpl_->dec_session.get(), pimpl_->dec_input_names, pimpl_->dec_input_names_ptrs);
         pimpl_->query_out_info(pimpl_->dec_session.get(), pimpl_->dec_output_names, pimpl_->dec_output_names_ptrs);
         pimpl_->memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
@@ -179,16 +178,11 @@ bool InferenceEngine::initialize(const std::string& p) { return initialize_embed
 InferenceResult InferenceEngine::compress_text(const std::string& input) {
     InferenceResult res;
     if (!pimpl_->initialized_) return res;
-
-    // FEW-SHOT PROMPT: Guide model to Key:Value; format
     std::string prompted = "Protocol: Key:Value; Example: Input: Auth PR 42. Output: Dev: →review; Code: PR#42; Input: " + input + " Output:";
-    
     auto ids = pimpl_->tokenize(prompted);
-    if (ids.size() > 400) ids.resize(400); // Truncate to leave room for output
-
+    if (ids.size() > 350) ids.resize(350);
     std::vector<float> hidden;
     if (!pimpl_->run_encoder(ids, hidden)) return res;
-
     std::vector<int64_t> dec_ids = {0};
     for (int i = 0; i < 150; ++i) {
         std::vector<float> logits;
