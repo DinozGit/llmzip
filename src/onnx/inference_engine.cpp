@@ -173,7 +173,7 @@ struct InferenceEngine::Impl {
     }
 
     // ----------------------------------------------------------------
-    // Build encoder attention mask (2D) for decoder input
+    // Build encoder attention mask (2D, stored separately)
     // ----------------------------------------------------------------
     std::vector<int64_t> build_enc_mask(const std::vector<int64_t>& enc_input_ids) {
         std::vector<int64_t> mask(max_seq_len, 0);
@@ -181,6 +181,9 @@ struct InferenceEngine::Impl {
             mask[i] = 1;
         return mask;
     }
+
+    // Cached encoder mask for decoder steps
+    std::vector<int64_t> cached_enc_mask;
 
     // ----------------------------------------------------------------
     // Run decoder step: decoder_ids + encoder_hidden → logits
@@ -236,8 +239,11 @@ struct InferenceEngine::Impl {
                 ort_inputs.push_back(std::move(t));
             } else if (name == "encoder_attention_mask") {
                 // Encoder attention mask: 2D [1, max_seq_len]
+                // Use cached encoder mask, not decoder mask!
+                auto& enc_mask = cached_enc_mask;
+                if (enc_mask.empty()) enc_mask = build_enc_mask(enc_input_ids);
                 auto t = Ort::Value::CreateTensor<int64_t>(
-                    memory_info, dec_mask.data(), dec_mask.size(),
+                    memory_info, enc_mask.data(), enc_mask.size(),
                     shape_1d.data(), (int)shape_1d.size());
                 ort_inputs.push_back(std::move(t));
             } else if (name == "causal_mask" || name.find("causal") != std::string::npos) {
@@ -297,17 +303,13 @@ struct InferenceEngine::Impl {
                 int64_t seq = shape[shape.size()-2];
                 int64_t voc = shape[shape.size()-1];
 
-                // Take logits from last active decoder position
-                if (seq > 1) {
-                    // decoder output has length = dec_ids.size()
-                    // But we want the last position prediction
-                    int64_t last_pos = std::min<int64_t>((int64_t)decoder_ids.size() - 1, seq - 1);
-                    if (last_pos < 0) last_pos = 0;
-                    int64_t offset = last_pos * voc;
-                    logits_out.assign(data + offset, data + offset + voc);
-                } else {
-                    logits_out.assign(data, data + voc);
-                }
+                // Logits shape: [1, decoder_seq_len, vocab_size]
+                // The last position in decoder_seq_len corresponds to the most recent token
+                int64_t dec_len = (int64_t)decoder_ids.size();
+                int64_t last_pos = std::min<int64_t>(dec_len - 1, seq - 1);
+                if (last_pos < 0) last_pos = 0;
+                int64_t offset = last_pos * voc;
+                logits_out.assign(data + offset, data + offset + voc);
                 return true;
             }
         }
@@ -491,6 +493,9 @@ InferenceResult InferenceEngine::compress_text(const std::string& input) {
         }
         std::cerr << "[T5] Encoder hidden: " << encoder_hidden.size() << " floats\n";
 
+        // Pre-compute and cache encoder mask
+        pimpl_->cached_enc_mask = pimpl_->build_enc_mask(input_ids);
+
         // 3. Autoregressive decoder loop
         std::vector<int64_t> decoder_ids;
         decoder_ids.reserve(pimpl_->max_new_tokens);
@@ -570,6 +575,7 @@ InferenceResult InferenceEngine::decompress_text(const std::vector<uint8_t>& com
             result.output_text = input_str;
             return result;
         }
+        pimpl_->cached_enc_mask = pimpl_->build_enc_mask(input_ids);
 
         std::vector<int64_t> decoder_ids;
         decoder_ids.push_back(pimpl_->pad_token_id);
