@@ -303,11 +303,30 @@ std::string ProtocolParser::normalize(const std::string& input) {
 std::vector<std::string> ProtocolParser::segment(const std::string& input) {
     std::vector<std::string> segments;
     std::stringstream ss(input);
-    std::string item;
-    // Split by common list markers or semicolons
-    while (std::getline(ss, item, ';')) {
-        if (!trim(item).empty()) segments.push_back(trim(item));
+    std::string line;
+    std::string current_block;
+    
+    while (std::getline(ss, line)) {
+        std::string t_line = trim(line);
+        if (t_line.empty()) {
+            if (!current_block.empty()) {
+                segments.push_back(current_block);
+                current_block.clear();
+            }
+            continue;
+        }
+        
+        // Split by Markdown headers
+        if (t_line[0] == '#') {
+            if (!current_block.empty()) segments.push_back(current_block);
+            segments.push_back(t_line);
+            current_block.clear();
+        } else {
+            if (!current_block.empty()) current_block += " ";
+            current_block += t_line;
+        }
     }
+    if (!current_block.empty()) segments.push_back(current_block);
     return segments;
 }
 
@@ -323,24 +342,62 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
         std::string lower = s;
         std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
         
-        if (s.find("✅") != std::string::npos || lower.find("done") != std::string::npos) done.push_back(s);
-        else if (s.find("⬜") != std::string::npos || lower.find("todo") != std::string::npos) plan.push_back(s);
-        else if (lower.find("c++") != std::string::npos || lower.find("python") != std::string::npos || lower.find("onnx") != std::string::npos) stack.push_back(s);
-        else ops.push_back(s);
+        // Skip noise
+        if (s.find("+-") != std::string::npos || s.find("|") != std::string::npos) continue;
+        if (lower.find("см. раздел") != std::string::npos) continue;
+
+        if (s[0] == '#') {
+            if (proj == "llmzip" && lower.find("llmzip") != std::string::npos) {
+                // Keep default or extract name
+            }
+            continue;
+        }
+
+        if (s.find("✅") != std::string::npos || lower.find("done") != std::string::npos || s.find("- [x]") != std::string::npos) {
+            done.push_back(s);
+        } else if (s.find("⬜") != std::string::npos || lower.find("todo") != std::string::npos || s.find("- [ ]") != std::string::npos) {
+            plan.push_back(s);
+        } else if (lower.find("c++") != std::string::npos || lower.find("python") != std::string::npos || 
+                   lower.find("onnx") != std::string::npos || lower.find("cmake") != std::string::npos ||
+                   lower.find("zlib") != std::string::npos) {
+            stack.push_back(s);
+        } else if (lower.size() < 100) { // Only keep short meaningful lines in ops
+            ops.push_back(s);
+        }
     }
     
     std::ostringstream oss;
     oss << "Proj:" << proj << "; Status:" << (done.empty() ? "🔄" : "✅") << "; →tech; →no-meta\n";
+    
     if (!stack.empty()) {
         oss << "Stack:";
-        for (size_t i = 0; i < stack.size(); ++i) oss << (i > 0 ? "/" : "") << stack[i];
+        // Extract only keywords from stack blocks
+        std::set<std::string> keywords = {"C++", "Python", "ONNX", "CMake", "zlib", "CLI11", "Linux", "macOS", "Windows"};
+        bool first = true;
+        for (const auto& k : keywords) {
+            bool found = false;
+            for (const auto& st : stack) {
+                if (st.find(k) != std::string::npos) { found = true; break; }
+            }
+            if (found) {
+                if (!first) oss << "/";
+                oss << k;
+                first = false;
+            }
+        }
         oss << ";\n";
     }
+    
     if (!done.empty()) {
         oss << "Done:";
-        for (size_t i = 0; i < done.size(); ++i) oss << (i > 0 ? "; " : "") << done[i];
+        for (size_t i = 0; i < std::min(done.size(), (size_t)5); ++i) {
+            std::string d = done[i];
+            if (d.size() > 50) d = d.substr(0, 47) + "...";
+            oss << (i > 0 ? "; " : "") << d;
+        }
         oss << ";\n";
     }
+    
     oss << "Meta: fp:auto; ver:2.0; →roundtrip:✓✓";
     return oss.str();
 }
