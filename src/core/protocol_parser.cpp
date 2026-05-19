@@ -329,11 +329,13 @@ std::string ProtocolParser::assemble(const std::vector<std::string>& segments) {
             }
         }
 
-        // Extract Tasks
-        if (s.find("✅") != std::string::npos || s.find("[x]") != std::string::npos) {
-            done_tasks.insert(trim(s));
-        } else if (s.find("⬜") != std::string::npos || s.find("[ ]") != std::string::npos) {
-            plan_tasks.insert(trim(s));
+        // Extract Tasks (Only if short enough to be a task, not a whole paragraph)
+        if (s.size() < 200) {
+            if (s.find("✅") != std::string::npos || s.find("[x]") != std::string::npos) {
+                done_tasks.insert(trim(s));
+            } else if (s.find("⬜") != std::string::npos || s.find("[ ]") != std::string::npos) {
+                plan_tasks.insert(trim(s));
+            }
         }
     }
     
