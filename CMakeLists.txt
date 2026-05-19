@@ -77,23 +77,60 @@ if(EMBED_MODEL)
         message(WARNING "spiece.model not found at ${MODEL_SPIECE}")
     endif()
 
-    # Embed ONNX model as a C source file via xxd (portable, always works)
+    # Embed ONNX models
+    # Fused model (fallback, used as decoder when paired with separate encoder)
     set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
     if(EXISTS "${MODEL_ONNX}")
-        message(STATUS "Embedding ONNX model via xxd: ${MODEL_ONNX}")
+        message(STATUS "Embedding fused ONNX model: ${MODEL_ONNX}")
         add_custom_command(
             OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
             COMMAND xxd -i -n model_onnx "${MODEL_ONNX}" > ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
             DEPENDS "${MODEL_ONNX}"
-            COMMENT "Converting ONNX model to C source..."
+            COMMENT "Converting fused ONNX model to C source..."
         )
-        add_custom_target(model_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp)
-        set(MODEL_EMBEDDED_C "${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp")
-        list(APPEND CORE_SOURCES "${MODEL_EMBEDDED_C}")
-        set_source_files_properties("${MODEL_EMBEDDED_C}" PROPERTIES GENERATED TRUE)
+        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp")
+        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp" PROPERTIES GENERATED TRUE)
     else()
-        message(WARNING "EMBED_MODEL enabled but model.onnx not found at ${MODEL_ONNX}")
+        message(WARNING "Fused ONNX model not found at ${MODEL_ONNX}")
     endif()
+
+    # Encoder model
+    set(MODEL_ENCODER "${CMAKE_SOURCE_DIR}/resources/encoder_model_quantized.onnx")
+    if(EXISTS "${MODEL_ENCODER}")
+        message(STATUS "Embedding encoder ONNX model: ${MODEL_ENCODER}")
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
+            COMMAND xxd -i -n encoder_onnx "${MODEL_ENCODER}" > ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
+            DEPENDS "${MODEL_ENCODER}"
+            COMMENT "Converting encoder ONNX model to C source..."
+        )
+        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp")
+        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp" PROPERTIES GENERATED TRUE)
+    else()
+        message(WARNING "Encoder ONNX model not found at ${MODEL_ENCODER}")
+    endif()
+
+    # Decoder model
+    set(MODEL_DECODER "${CMAKE_SOURCE_DIR}/resources/decoder_model_quantized.onnx")
+    if(EXISTS "${MODEL_DECODER}")
+        message(STATUS "Embedding decoder ONNX model: ${MODEL_DECODER}")
+        add_custom_command(
+            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
+            COMMAND xxd -i -n decoder_onnx "${MODEL_DECODER}" > ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
+            DEPENDS "${MODEL_DECODER}"
+            COMMENT "Converting decoder ONNX model to C source..."
+        )
+        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp")
+        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp" PROPERTIES GENERATED TRUE)
+    else()
+        message(WARNING "Decoder ONNX model not found at ${MODEL_DECODER}")
+    endif()
+
+    add_custom_target(model_embedded DEPENDS
+        ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
+        ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
+    )
     add_definitions(-DEMBED_MODEL)
 endif()
 
