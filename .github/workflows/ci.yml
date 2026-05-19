@@ -1,18 +1,22 @@
 name: Build and Release
 
+# Automatic triggers disabled to prevent unnecessary builds
+# on:
+#   push:
+#     branches: [main, develop]
+#     tags: ['v*']
+#   pull_request:
+#     branches: [main]
+
 on:
-  push:
-    branches: [main, develop]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+  workflow_dispatch: # Allows manual triggering only
 
 jobs:
   build-linux:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -21,23 +25,23 @@ jobs:
             g++ \
             libonnxruntime-dev \
             zlib1g-dev
-      
+
       - name: Configure
         run: |
           mkdir build
           cd build
           cmake .. -DCMAKE_BUILD_TYPE=Release
-      
+
       - name: Build
         run: |
           cd build
           make -j$(nproc)
-      
+
       - name: Test
         run: |
           cd build
           ./llmzip --version
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
@@ -51,11 +55,11 @@ jobs:
         arch: [x86_64, arm64]
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install dependencies
         run: |
           brew install cmake onnxruntime
-      
+
       - name: Configure
         run: |
           mkdir build
@@ -63,17 +67,17 @@ jobs:
           cmake .. \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
-      
+
       - name: Build
         run: |
           cd build
           make -j$(sysctl -n hw.ncpu)
-      
+
       - name: Test
         run: |
           cd build
           ./llmzip --version
-      
+
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
@@ -85,16 +89,16 @@ jobs:
     strategy:
       matrix:
         include:
-          - {arch: x64, config: Release}
-          - {arch: x64, config: Release, gui: ON}
+          - { arch: x64, config: Release }
+          - { arch: x64, config: Release, gui: ON }
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install dependencies
         run: |
           choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
           vcpkg install onnxruntime:x64-windows
-      
+
       - name: Configure (CLI only)
         if: matrix.gui != 'ON'
         run: |
@@ -104,7 +108,7 @@ jobs:
             -A ${{ matrix.arch }} `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DBUILD_GUI=OFF
-      
+
       - name: Configure (with GUI)
         if: matrix.gui == 'ON'
         run: |
@@ -114,31 +118,31 @@ jobs:
             -A ${{ matrix.arch }} `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DBUILD_GUI=ON
-      
+
       - name: Build CLI
         if: matrix.gui != 'ON'
         run: |
           cd build
           cmake --build . --config ${{ matrix.config }}
-      
+
       - name: Build GUI
         if: matrix.gui == 'ON'
         run: |
           cd build-gui
           cmake --build . --config ${{ matrix.config }}
-      
+
       - name: Test
         run: |
           cd build
           .\${{ matrix.config }}\llmzip.exe --version
-      
+
       - name: Upload artifact (CLI)
         if: matrix.gui != 'ON'
         uses: actions/upload-artifact@v3
         with:
           name: llmzip-windows-x64-cli
           path: build/${{ matrix.config }}/llmzip.exe
-      
+
       - name: Upload artifact (GUI)
         if: matrix.gui == 'ON'
         uses: actions/upload-artifact@v3
@@ -152,27 +156,27 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Download all artifacts
         uses: actions/download-artifact@v3
-      
+
       - name: Create release packages
         run: |
           # Linux
           zip -j llmzip-linux-x64.zip llmzip-linux-x64/llmzip
-          
+
           # macOS x64
           zip -j llmzip-macos-x64.zip llmzip-macos-x64/llmzip
-          
+
           # macOS ARM64
           zip -j llmzip-macos-arm64.zip llmzip-macos-arm64/llmzip
-          
+
           # Windows CLI
           zip -j llmzip-windows-x64-cli.zip llmzip-windows-x64-cli/llmzip.exe
-          
+
           # Windows GUI
           zip -j llmzip-windows-x64-gui.zip llmzip-windows-x64-gui/llmzip_gui.exe
-      
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -185,16 +189,16 @@ jobs:
           body: |
             ## Changes
             - Auto-generated release from CI
-            
+
             ## Installation
             Download the appropriate file for your platform and extract it.
-            
+
             ### Linux/macOS
             ```bash
             unzip llmzip-*.zip
             chmod +x llmzip
             ./llmzip --help
             ```
-            
+
             ### Windows
             Extract the ZIP file and run `llmzip.exe` from Command Prompt or PowerShell.

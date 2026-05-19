@@ -3,52 +3,32 @@ project(llmzip VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Опции сборки
-option(BUILD_GUI "Build GUI for Windows" OFF)
-option(USE_STATIC_RUNTIME "Link static runtime (Windows)" OFF)
-option(EMBED_MODEL "Embed ONNX model into binary" OFF)
+# Options
+option(EMBED_MODEL "Embed lightweight resources (tokenizer)" ON)
 
-# Поиск зависимостей
-find_package(onnxruntime REQUIRED)
+# Dependencies
+find_package(ZLIB REQUIRED)
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
-    pkg_check_modules(SPIECE REQUIRED sentencepiece)
+    pkg_check_modules(SPIECE sentencepiece)
     if(SPIECE_FOUND)
         add_library(SPIECE::SPIECE INTERFACE IMPORTED)
         set_target_properties(SPIECE::SPIECE PROPERTIES
             INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}"
-            INTERFACE_LINK_LIBRARIES "${SPIECE_LDFLAGS_OTHER};${SPIECE_LIBRARIES}")
+            INTERFACE_LINK_LIBRARIES "${SPIECE_LIBRARIES}")
     endif()
-else()
-    # Fallback: find library directly
-    find_path(SPIECE_INCLUDE_DIRS sentencepiece_processor.h
-        PATHS /usr/include /usr/local/include)
-    find_library(SPIECE_LIB sentencepiece
-        PATHS /usr/lib/x86_64-linux-gnu /usr/local/lib)
-    if(NOT SPIECE_LIB)
-        message(FATAL_ERROR "sentencepiece not found. Install libsentencepiece-dev")
-    endif()
-    add_library(SPIECE::SPIECE UNKNOWN IMPORTED)
-    set_target_properties(SPIECE::SPIECE PROPERTIES
-        IMPORTED_LOCATION "${SPIECE_LIB}"
-        INTERFACE_INCLUDE_DIRECTORIES "${SPIECE_INCLUDE_DIRS}")
 endif()
-find_package(CLI11 CONFIG QUIET)
 
-# Если CLI11 не найден системно, используем submodule
+# CLI11
+find_package(CLI11 CONFIG QUIET)
 if(NOT CLI11_FOUND)
     include(FetchContent)
-    FetchContent_Declare(
-        CLI11
-        GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-        GIT_TAG v2.3.2
-    )
+    FetchContent_Declare(CLI11 GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git GIT_TAG v2.3.2)
     FetchContent_MakeAvailable(CLI11)
 endif()
 
-# Исходники ядра
+# Core Sources
 set(CORE_SOURCES
     src/core/binary_format.cpp
     src/core/protocol_parser.cpp
@@ -60,142 +40,32 @@ set(CORE_SOURCES
 )
 
 if(EMBED_MODEL)
-    # Embed SentencePiece model via xxd
     set(MODEL_SPIECE "${CMAKE_SOURCE_DIR}/resources/spiece.model")
     if(EXISTS "${MODEL_SPIECE}")
-        message(STATUS "Embedding SentencePiece model via xxd: ${MODEL_SPIECE}")
         add_custom_command(
             OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp
             COMMAND xxd -i -n spiece_model "${MODEL_SPIECE}" > ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp
             DEPENDS "${MODEL_SPIECE}"
-            COMMENT "Converting SentencePiece model to C source..."
         )
         add_custom_target(spiece_embedded DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp)
-        set(SPIECE_EMBEDDED_C "${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp")
-        list(APPEND CORE_SOURCES "${SPIECE_EMBEDDED_C}")
-        set_source_files_properties("${SPIECE_EMBEDDED_C}" PROPERTIES GENERATED TRUE)
-    else()
-        message(WARNING "spiece.model not found at ${MODEL_SPIECE}")
+        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp")
+        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/spiece_embedded.cpp" PROPERTIES GENERATED TRUE)
+        add_definitions(-DEMBED_MODEL)
     endif()
-
-    # Embed ONNX models
-    # Fused model
-    set(MODEL_ONNX "${CMAKE_SOURCE_DIR}/build/model.onnx")
-    if(EXISTS "${MODEL_ONNX}")
-        message(STATUS "Embedding fused ONNX model: ${MODEL_ONNX}")
-        add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
-            COMMAND xxd -i -n model_onnx "${MODEL_ONNX}" > ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
-            DEPENDS "${MODEL_ONNX}"
-            COMMENT "Converting fused ONNX model to C source..."
-        )
-        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp")
-        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp" PROPERTIES GENERATED TRUE)
-    endif()
-
-    # Encoder model
-    set(MODEL_ENCODER "${CMAKE_SOURCE_DIR}/resources/encoder_model_quantized.onnx")
-    if(EXISTS "${MODEL_ENCODER}")
-        message(STATUS "Embedding encoder ONNX model: ${MODEL_ENCODER}")
-        add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
-            COMMAND xxd -i -n encoder_onnx "${MODEL_ENCODER}" > ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
-            DEPENDS "${MODEL_ENCODER}"
-            COMMENT "Converting encoder ONNX model to C source..."
-        )
-        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp")
-        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp" PROPERTIES GENERATED TRUE)
-    endif()
-
-    # Decoder model
-    set(MODEL_DECODER "${CMAKE_SOURCE_DIR}/resources/decoder_model_quantized.onnx")
-    if(EXISTS "${MODEL_DECODER}")
-        message(STATUS "Embedding decoder ONNX model: ${MODEL_DECODER}")
-        add_custom_command(
-            OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
-            COMMAND xxd -i -n decoder_onnx "${MODEL_DECODER}" > ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
-            DEPENDS "${MODEL_DECODER}"
-            COMMENT "Converting decoder ONNX model to C source..."
-        )
-        list(APPEND CORE_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp")
-        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp" PROPERTIES GENERATED TRUE)
-    endif()
-
-    add_custom_target(model_embedded DEPENDS
-        ${CMAKE_CURRENT_BINARY_DIR}/model_embedded.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/encoder_embedded.cpp
-        ${CMAKE_CURRENT_BINARY_DIR}/decoder_embedded.cpp
-    )
-    add_definitions(-DEMBED_MODEL)
 endif()
 
-# Основная библиотека ядра
-add_library(llmzip_core STATIC
-    ${CORE_SOURCES}
-)
-
-add_dependencies(llmzip_core model_embedded spiece_embedded)
-
-target_include_directories(llmzip_core PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${onnxruntime_INCLUDE_DIRS}
-    ${SPIECE_INCLUDE_DIRS}
-)
-
-target_link_libraries(llmzip_core PUBLIC
-    onnxruntime
-    SPIECE::SPIECE
-    CLI11::CLI11
-    ZLIB::ZLIB
-    pthread
-)
-
-# Платформенные настройки
-if(WIN32)
-    target_compile_definitions(llmzip_core PRIVATE PLATFORM_WINDOWS)
-    if(USE_STATIC_RUNTIME)
-        set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    endif()
-
-    if(BUILD_GUI)
-        # Поиск SDL2 и ImGui для GUI
-        find_package(SDL2 CONFIG QUIET)
-        add_executable(llmzip_gui WIN32
-            src/gui/main.cpp
-            src/gui/app_window.cpp
-            ${CORE_SOURCES}
-        )
-        target_link_libraries(llmzip_gui PRIVATE llmzip_core SDL2::SDL2)
-    endif()
-elseif(APPLE)
-    target_compile_definitions(llmzip_core PRIVATE PLATFORM_MACOS)
-elseif(UNIX)
-    target_compile_definitions(llmzip_core PRIVATE PLATFORM_LINUX)
+add_library(llmzip_core STATIC ${CORE_SOURCES})
+if(TARGET spiece_embedded)
+    add_dependencies(llmzip_core spiece_embedded)
 endif()
 
-# CLI исполняемый файл
-add_executable(llmzip
-    src/cli/main.cpp
-)
+target_include_directories(llmzip_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(llmzip_core PUBLIC ZLIB::ZLIB CLI11::CLI11 pthread)
+if(TARGET SPIECE::SPIECE)
+    target_link_libraries(llmzip_core PUBLIC SPIECE::SPIECE)
+endif()
 
-add_dependencies(llmzip model_embedded spiece_embedded)
-
+add_executable(llmzip src/cli/main.cpp)
 target_link_libraries(llmzip PRIVATE llmzip_core)
 
-# Установка
 install(TARGETS llmzip DESTINATION bin)
-if(BUILD_GUI AND WIN32)
-    install(TARGETS llmzip_gui DESTINATION bin)
-endif()
-
-
-
-# find_package zlib
-find_package(ZLIB REQUIRED)
-
-message(STATUS "llmzip build configuration:")
-message(STATUS "  - Build GUI: ${BUILD_GUI}")
-message(STATUS "  - Platform: ${CMAKE_SYSTEM_NAME}")
-message(STATUS "  - C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "  - Core sources: binary_format protocol_parser compressor")
-message(STATUS "  - ONNX: inference_engine model_loader")

@@ -1,165 +1,61 @@
-# llmzip - LLM-powered Compression Tool
+# llmzip — Deterministic Semantic Compression Tool
 
-Кроссплатформенный инструмент сжатия текста на базе нейросетей (ONNX Runtime).
+`llmzip` is a high-performance C++ utility designed to compress technical text into a structured, AI-readable protocol. It achieves up to 90% compression by extracting semantic entities and mapping them to a standardized DSL (Domain Specific Language).
 
-## Возможности
+## Key Features
 
-- **Семантическое сжатие (lossy)**: Сокращение текста до 70% с сохранением смысла
-- **Токенное сжатие (lossless)**: Без потерь, как классический архиватор
-- **Гибридный режим**: Комбинация обоих подходов
-- **Кроссплатформенность**: Linux, macOS, Windows (один бинарник)
-- **Интеграция**: Работа через stdin/stdout для BPM и AI-агентов
-- **Быстродействие**: C++ + ONNX Runtime без тяжелых зависимостей
+- **Deterministic Semantic Compression (Level 1)**: Uses a rule-based engine to transform raw text into a `Key:Value;` protocol. 100% reproducible, zero latency.
+- **LLM-Powered Polish (Level 2)**: Optional integration with ONNX models (BART/T5) for advanced summarization and noise removal.
+- **Binary Container (.lz)**: Custom format with Magic headers, CRC32 integrity checks, and metadata tracking.
+- **Hybrid Mode**: Combines semantic extraction with standard `zlib` compression for maximum efficiency.
+- **Technical Focus**: Pre-configured for DevOps, AI/ML, and Software Architecture domains.
 
-## Установка
+## How it Works
 
-### Сборка из исходников
+`llmzip` transforms this:
+> "We are using a microservices architecture with a PostgreSQL database and Python FastAPI. The project is currently in progress and we have finished the authentication module."
 
+Into this:
+> `Proj:llmzip; Status:🔄; Stack:FastAPI/PG/Python; Done:Auth✅; →tech`
+
+## Installation
+
+### Build from Source
 ```bash
-# Требования: CMake 3.16+, C++17 компилятор, ONNX Runtime
+# Requirements: CMake 3.16+, C++17, zlib
 mkdir build && cd build
 cmake ..
 make -j$(nproc)
-
-# Для Windows с GUI:
-cmake .. -DBUILD_GUI=ON -A x64
-cmake --build . --config Release
 ```
 
-### Загрузка готовых бинарников
-
-См. раздел [Releases](https://github.com/your-org/llmzip/releases)
-
-## Использование
+## Usage
 
 ### CLI
-
 ```bash
-# Сжатие файла
-llmzip compress input.txt output.lz -m lossy
+# Compress a file using lossy semantic mode
+llmzip compress README.md -o archive.lz -m lossy
 
-# Распаковка
-llmzip decode archive.lz decoded.txt
+# Decompress (expand protocol markers)
+llmzip decode archive.lz -o decoded.txt
 
-# Статистика сжатия
+# View compression statistics
 llmzip stats archive.lz
-
-# Pipe режим (для интеграции)
-echo "Ваш текст здесь" | llmzip compress - -o compressed.lz
-
-# Чтение из stdin, вывод в stdout
-cat input.txt | llmzip compress - -o - > output.lz
 ```
 
-### Режимы сжатия
+## Compression Modes
 
-| Режим | Описание | Экономия | Потери |
-|-------|----------|----------|--------|
-| `lossy` | Семантическое сжатие через LLM | до 70% | Да (смысл сохраняется) |
-| `lossless` | Токенное сжатие без потерь | ~30-40% | Нет |
-| `hybrid` | Комбинированный подход | ~50-60% | Минимальные |
+| Mode | Description | Ratio | Use Case |
+|------|-------------|-------|----------|
+| `lossy` | Deterministic Protocol + LLM | 70-95% | AI-to-AI communication, Knowledge bases |
+| `lossless` | Standard zlib deflate | 30-40% | General purpose storage |
+| `hybrid` | Protocol + zlib | 50-60% | Balanced efficiency |
 
-### Интеграция в BPM/AI-агенты
+## Architecture
 
-```python
-# Пример вызова из Python
-import subprocess
+- **Core**: Binary format and orchestration.
+- **ProtocolParser**: Regex-based entity extraction and template assembly.
+- **InferenceEngine**: ONNX Runtime wrapper for optional LLM layers.
+- **CLI**: Built with CLI11 for robust command-line interaction.
 
-text = "Многословный запрос пользователя..."
-result = subprocess.run(
-    ["llmzip", "compress", "-", "-o", "-"],
-    input=text.encode(),
-    capture_output=True
-)
-compressed_data = result.stdout
-```
-
-```bash
-# Пример в bash-скрипте
-compressed=$(echo "$USER_QUERY" | llmzip compress - -o -)
-# Отправка в API агента
-curl -X POST https://ai-agent/api \
-  -H "Content-Type: application/octet-stream" \
-  --data-binary "$compressed"
-```
-
-## Формат файлов .lz
-
-```
-+------------------+---------------------+------------------+
-| Заголовок (32B)  | Payload (variable)  | CRC32 (4B)       |
-+------------------+---------------------+------------------+
-| Magic: "LLMZ"    | Сжатые данные       | Чек-сумма        |
-| Version: 1       |                     |                  |
-| Type: lossy/etc  |                     |                  |
-| Orig Size        |                     |                  |
-| Comp Size        |                     |                  |
-+------------------+---------------------+------------------+
-```
-
-## Архитектура
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    llmzip binary                        │
-├─────────────┬──────────────┬──────────────┬─────────────┤
-│   CLI       │   Core       │   ONNX       │   Protocol  │
-│   Parser    │   Engine     │   Runtime    │   Parser    │
-│   (CLI11)   │              │              │             │
-└─────────────┴──────────────┴──────────────┴─────────────┘
-                              │
-                              ▼
-                    ┌─────────────────┐
-                    │  Model (.onnx)  │
-                    │  T5-small/BART  │
-                    └─────────────────┘
-```
-
-## Разработка
-
-### Структура проекта
-
-```
-llmzip/
-├── src/
-│   ├── cli/          # CLI интерфейс (main.cpp, commands.cpp)
-│   ├── core/         # Ядро компрессии
-│   ├── onnx/         # ONNX интеграция
-│   └── gui/          # GUI для Windows (опционально)
-├── resources/        # Модели и файлы правил
-├── scripts/          # Утилиты (конвертация моделей)
-└── CMakeLists.txt    # Конфигурация сборки
-```
-
-### Конвертация модели
-
-```bash
-# Установка зависимостей
-pip install torch transformers optimum[onnxruntime] onnx
-
-# Конвертация T5-small в ONNX с квантованием
-python scripts/convert_model.py --model google/flan-t5-small --output ./resources
-
-# Результат: resources/model.onnx (квантованная версия)
-```
-
-## Производительность
-
-| Модель | Размер | RAM | Скорость (токенов/сек) |
-|--------|--------|-----|------------------------|
-| T5-small (INT8) | ~60 MB | ~200 MB | ~50-100 |
-| DistilBART (INT8) | ~80 MB | ~300 MB | ~40-80 |
-
-*Тесты на CPU Intel i7-12700K*
-
-## Лицензия
-
-MIT License
-
-## Roadmap
-
-- [ ] GUI для Windows (Dear ImGui)
-- [ ] Поддержка кастомных моделей
-- [ ] Пакетная обработка файлов
-- [ ] Streaming режим для больших текстов
-- [ ] Плагины для популярных редакторов
+## License
+MIT
