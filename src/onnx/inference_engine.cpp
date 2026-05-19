@@ -158,7 +158,8 @@ bool InferenceEngine::initialize_embedded() {
         if (spiece_model_len > 0) pimpl_->sp_processor.LoadFromSerializedProto(std::string((const char*)spiece_model, spiece_model_len));
         pimpl_->env = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "llmzip");
         pimpl_->session_options = Ort::SessionOptions();
-        pimpl_->session_options.SetIntraOpNumThreads(1);
+        pimpl_->session_options.SetIntraOpNumThreads(2);
+        pimpl_->session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
         pimpl_->enc_session = std::make_unique<Ort::Session>(pimpl_->env, encoder_onnx, encoder_onnx_len, pimpl_->session_options);
         pimpl_->query_info(pimpl_->enc_session.get(), pimpl_->enc_input_names, pimpl_->enc_input_names_ptrs);
         pimpl_->query_out_info(pimpl_->enc_session.get(), pimpl_->enc_output_names, pimpl_->enc_output_names_ptrs);
