@@ -32,17 +32,20 @@ make -j$(nproc)
 
 ### CLI
 ```bash
-# Compress a file (output will be README.md.lz by default)
-llmzip c README.md
+# Compress a file (defaults to input.txt.lz)
+llmzip c input.txt
 
 # Compress with specific output and mode
-llmzip compress README.md archive.lz -m lossy
+llmzip c input.txt archive.lz -m lossy
 
-# Decompress
-llmzip d archive.lz decoded.txt
+# Decompress (defaults to stdout if output is omitted)
+llmzip d archive.lz output.txt
 
 # View compression statistics
 llmzip s archive.lz
+
+# Show version
+llmzip v
 ```
 
 ## Compression Modes
