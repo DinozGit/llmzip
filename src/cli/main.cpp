@@ -28,7 +28,7 @@ int main(int argc, char** argv) {
     // Быстрая проверка на версию
     if (argc >= 2) {
         std::string arg1 = argv[1];
-        if (arg1 == "-v" || arg1 == "--version" || arg1 == "version") {
+        if (arg1 == "-v" || arg1 == "--version" || arg1 == "version" || arg1 == "v") {
             print_version();
             return 0;
         }
@@ -50,31 +50,36 @@ int main(int argc, char** argv) {
 
     // Команда compress
     auto compress_cmd = app.add_subcommand("compress", "Compress text to .lz format");
+    compress_cmd->alias("c");
     
     std::string compress_input = "";
     std::string compress_output = "";
     std::string compress_mode = "lossy";
     
     compress_cmd->add_option("input", compress_input, "Input file (use '-' for stdin)")
-                ->required(false);
-    compress_cmd->add_option("-o,--output", compress_output, "Output file")
                 ->required(true);
+    compress_cmd->add_option("output", compress_output, "Output file");
+    // Оставляем возможность использовать -o для совместимости
+    compress_cmd->add_option("-o,--output-flag", compress_output, "Output file (alias for output)");
+    
     compress_cmd->add_option("-m,--mode", compress_mode, "Compression mode: lossy, lossless, hybrid")
                 ->check(CLI::IsMember({"lossy", "lossless", "hybrid"}));
 
     // Команда decode
     auto decode_cmd = app.add_subcommand("decode", "Decompress .lz file to text");
+    decode_cmd->alias("d");
     
     std::string decode_input = "";
     std::string decode_output = "";
     
     decode_cmd->add_option("input", decode_input, "Input .lz file")
                ->required(true);
-    decode_cmd->add_option("-o,--output", decode_output, "Output text file (use '-' for stdout)")
-               ->required(false);
+    decode_cmd->add_option("output", decode_output, "Output text file");
+    decode_cmd->add_option("-o,--output-flag", decode_output, "Output file (alias for output)");
 
     // Команда stats
     auto stats_cmd = app.add_subcommand("stats", "Show compression statistics");
+    stats_cmd->alias("s");
     
     std::string stats_file = "";
     stats_cmd->add_option("file", stats_file, ".lz file to analyze")
@@ -93,6 +98,14 @@ int main(int argc, char** argv) {
         ctx.command = "compress";
         ctx.input_file = compress_input;
         ctx.output_file = compress_output;
+        
+        if (ctx.output_file.empty() && compress_input != "-") {
+            ctx.output_file = compress_input + ".lz";
+        } else if (ctx.output_file.empty()) {
+            std::cerr << "Error: Output file is required when reading from stdin\n";
+            return 1;
+        }
+
         ctx.mode = compress_mode;
         ctx.use_stdin = (compress_input == "-");
         ctx.use_stdout = false;
@@ -122,10 +135,9 @@ int main(int argc, char** argv) {
     // Если команда не указана
     if (argc < 2) {
         print_usage(argv[0]);
-        return 1;
+        return 0;
     }
 
-    std::cerr << "Unknown command: " << argv[1] << "\n";
-    print_usage(argv[0]);
-    return 1;
+    // Если мы здесь, значит CLI11 не распознал команду (хотя должен был выкинуть исключение выше)
+    return 0;
 }

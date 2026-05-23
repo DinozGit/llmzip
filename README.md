@@ -32,14 +32,17 @@ make -j$(nproc)
 
 ### CLI
 ```bash
-# Compress a file using lossy semantic mode
-llmzip compress README.md -o archive.lz -m lossy
+# Compress a file (output will be README.md.lz by default)
+llmzip c README.md
 
-# Decompress (expand protocol markers)
-llmzip decode archive.lz -o decoded.txt
+# Compress with specific output and mode
+llmzip compress README.md archive.lz -m lossy
+
+# Decompress
+llmzip d archive.lz decoded.txt
 
 # View compression statistics
-llmzip stats archive.lz
+llmzip s archive.lz
 ```
 
 ## Compression Modes
