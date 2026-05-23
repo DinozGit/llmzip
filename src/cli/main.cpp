@@ -14,6 +14,9 @@ void print_version() {
 int main(int argc, char** argv) {
     CLI::App app{"llmzip - High-performance semantic text compression"};
     
+    // Требовать как минимум одну подкоманду
+    app.require_subcommand(1);
+    
     // Настройка глобального поведения
     app.set_help_flag("-h,--help", "Print this help message");
     app.footer("\nExamples:\n"
@@ -67,6 +70,11 @@ int main(int argc, char** argv) {
              ->required(true);
 
     // Обработка версии до основного парсинга, если это единственный аргумент
+    if (argc == 1) {
+        std::cout << app.help();
+        return 0;
+    }
+
     if (argc == 2 && (std::string(argv[1]) == "v" || std::string(argv[1]) == "version")) {
         print_version();
         return 0;
